@@ -4,7 +4,7 @@ import { api } from "./api";
 import { clock, LYRICS_LABEL, MODE_LABEL, points } from "./format";
 import { ImportDialog } from "./ImportDialog";
 
-export function Library() {
+export function Library({ demo }: { demo: boolean }) {
   const [songs, setSongs] = useState<SongSummary[] | null>(null);
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
@@ -37,9 +37,15 @@ export function Library() {
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-        <button className="btn btn-primary ml-auto" onClick={() => setImporting(true)}>
-          + Adicionar música
-        </button>
+        {demo ? (
+          <p className="ml-auto self-center text-xs text-white/40">
+            Instância de demonstração: acervo fixo, sem importação.
+          </p>
+        ) : (
+          <button className="btn btn-primary ml-auto" onClick={() => setImporting(true)}>
+            + Adicionar música
+          </button>
+        )}
       </div>
 
       {error && <p className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm">{error}</p>}
@@ -67,14 +73,16 @@ export function Library() {
                 </h2>
                 <p className="truncate text-sm text-white/60">{song.artist}</p>
               </div>
-              <button
-                className="cursor-pointer text-white/30 opacity-0 transition group-hover:opacity-100 hover:text-red-400 focus:opacity-100"
-                title="Apagar música"
-                aria-label={`Apagar ${song.title}`}
-                onClick={() => remove(song)}
-              >
-                ✕
-              </button>
+              {!demo && (
+                <button
+                  className="cursor-pointer text-white/30 opacity-0 transition group-hover:opacity-100 hover:text-red-400 focus:opacity-100"
+                  title="Apagar música"
+                  aria-label={`Apagar ${song.title}`}
+                  onClick={() => remove(song)}
+                >
+                  ✕
+                </button>
+              )}
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5">
               <span className="chip">{clock(song.duration)}</span>

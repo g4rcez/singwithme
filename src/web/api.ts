@@ -13,8 +13,20 @@ import type {
   ToolStatus,
 } from "../shared/types";
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
+const PIN_KEY = "singwithme.hostPin";
+
+/** PIN that identifies the host on instances where "sitting at the server" is not possible. */
+export const hostPin = {
+  get: () => localStorage.getItem(PIN_KEY),
+  set: (pin: string) => localStorage.setItem(PIN_KEY, pin.trim()),
+  clear: () => localStorage.removeItem(PIN_KEY),
+};
+
+async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  const pin = hostPin.get();
+  if (pin) headers.set("X-Host-Pin", pin);
+  const response = await fetch(path, { ...init, headers });
   const body = (await response.json().catch(() => null)) as (T & { error?: string }) | null;
   if (!response.ok || body === null) throw new Error(body?.error ?? `Erro ${response.status}`);
   return body;

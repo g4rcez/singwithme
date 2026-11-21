@@ -29,7 +29,7 @@ export interface Melody {
 }
 
 export type SongSource = "youtube" | "ultrastar" | "local";
-export type LyricsSource = "ultrastar" | "lrc" | "lrclib" | "lrclib-loose" | "youtube-subs" | "whisper";
+export type LyricsSource = "demo" | "ultrastar" | "lrc" | "lrclib" | "lrclib-loose" | "youtube-subs" | "whisper";
 
 export interface SongSummary {
   id: string;
@@ -117,6 +117,10 @@ export interface QueueItem {
 export interface PartyState {
   /** True for the machine running the karaoke (it controls the queue and shows the QR codes). */
   isHost: boolean;
+  /** Fixed library: importing and deleting songs is disabled. */
+  demo: boolean;
+  /** The host proves itself with a PIN instead of by sitting at the server machine. */
+  pinRequired: boolean;
   duos: Duo[];
   queue: QueueItem[];
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { DuoSession, PartyState, SongSummary } from "../shared/types";
-import { api } from "./api";
+import { api, hostPin } from "./api";
 
 const SESSION_KEY = "singwithme.duo";
 
@@ -12,13 +12,44 @@ function loadSession(): DuoSession | null {
   }
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+/** Lets the person running the karaoke identify themselves on instances protected by a PIN. */
+function HostLogin({ refresh }: { refresh: () => Promise<void> }) {
+  const [error, setError] = useState(false);
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    hostPin.set(String(new FormData(event.currentTarget).get("pin")));
+    const party = await api.party().catch(() => null);
+    if (party?.isHost) return refresh();
+    hostPin.clear();
+    setError(true);
+  };
+  return (
+    <details className="mt-8 text-sm text-white/50">
+      <summary className="cursor-pointer">Sou o anfitrião</summary>
+      <form onSubmit={submit} className="mt-3 flex gap-2">
+        <input
+          className="field"
+          name="pin"
+          type="password"
+          placeholder="PIN do anfitrião"
+          aria-label="PIN do anfitrião"
+          required
+        />
+        <button className="btn shrink-0">Entrar</button>
+      </form>
+      {error && <p className="mt-2 text-red-300">PIN incorreto.</p>}
+    </details>
+  );
+}
+
+function Shell({ children, footer }: { children: React.ReactNode; footer?: React.ReactNode }) {
   return (
     <div className="mx-auto max-w-md px-5 pb-16">
       <p className="py-6 text-2xl font-black tracking-tight">
         Sing<span className="text-accent">With</span>Me
       </p>
       {children}
+      {footer}
     </div>
   );
 }
@@ -62,8 +93,23 @@ function Join({ token, onJoined }: { token: string; onJoined: (session: DuoSessi
         <h1 className="text-xl font-bold">Cadastre sua dupla</h1>
         <p className="text-sm text-white/60">Quem vai cantar junto?</p>
       </div>
-      <input className="field" name="first" placeholder="Seu nome" aria-label="Seu nome" maxLength={24} required autoFocus />
-      <input className="field" name="second" placeholder="Nome da sua dupla" aria-label="Nome da sua dupla" maxLength={24} required />
+      <input
+        className="field"
+        name="first"
+        placeholder="Seu nome"
+        aria-label="Seu nome"
+        maxLength={24}
+        required
+        autoFocus
+      />
+      <input
+        className="field"
+        name="second"
+        placeholder="Nome da sua dupla"
+        aria-label="Nome da sua dupla"
+        maxLength={24}
+        required
+      />
       {error && <p className="text-sm text-red-300">{error}</p>}
       <button className="btn btn-primary w-full">Entrar no karaokê</button>
     </form>
@@ -106,7 +152,10 @@ function Lobby({ session, party, refresh }: { session: DuoSession; party: PartyS
           {party.queue.map((item, index) => {
             const own = item.duoId === session.duo.id;
             return (
-              <li key={item.id} className={`flex items-center gap-3 rounded-xl border p-2 ${own ? "border-glow bg-glow/10" : "border-edge"}`}>
+              <li
+                key={item.id}
+                className={`flex items-center gap-3 rounded-xl border p-2 ${own ? "border-glow bg-glow/10" : "border-edge"}`}
+              >
                 <span className="w-5 text-center font-bold text-white/40">{index + 1}</span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">
@@ -177,7 +226,7 @@ export function Guest({ party, refresh, token }: Props) {
   };
 
   return (
-    <Shell>
+    <Shell footer={party.pinRequired && !active ? <HostLogin refresh={refresh} /> : null}>
       {active ? (
         <Lobby session={active} party={party} refresh={refresh} />
       ) : token ? (

@@ -22,6 +22,7 @@ export const MODE_HELP: Record<ScoringMode, string> = {
 };
 
 export const LYRICS_LABEL: Record<LyricsSource, string> = {
+  demo: "Demonstração",
   ultrastar: "UltraStar",
   lrc: "Arquivo LRC",
   lrclib: "LRCLIB",

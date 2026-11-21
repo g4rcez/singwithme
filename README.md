@@ -22,7 +22,7 @@ microfone captar só a sua voz.
 | `whisper-ctranslate2` ou `whisper` | transcrever a letra offline (~100 idiomas) | não |
 | `demucs` | separar a voz: playback instrumental e melodia mais precisa | não |
 
-Variáveis: `PORT`, `HOST`, `PUBLIC_URL`, `SINGWITHME_DATA` (pasta de dados), `SINGWITHME_WHISPER_MODEL` (padrão `small`;
+Variáveis: `PORT`, `HOST`, `PUBLIC_URL`, `SINGWITHME_HOST_PIN`, `SINGWITHME_DEMO`, `SINGWITHME_DATA` (pasta de dados), `SINGWITHME_WHISPER_MODEL` (padrão `small`;
 `medium`/`large-v3` erram menos em idiomas não europeus), `SINGWITHME_LRCLIB_URL` (instância própria do LRCLIB).
 
 ## Festa: duplas, fila e cadastro por QR code
@@ -39,6 +39,17 @@ O celular precisa estar no mesmo Wi-Fi. O servidor escuta em toda a rede local (
 isso), mas só quem está no próprio computador importa ou apaga músicas, grava placares e controla a fila;
 pelo celular a dupla só mexe na própria vez. Se o endereço do QR code sair errado (várias placas de rede,
 túnel), defina `PUBLIC_URL=http://endereço:porta`.
+
+## Demonstração na nuvem (Vercel)
+
+O repositório publica na Vercel como está (`vercel.json`, runtime Bun, entrada em `server.ts`). Lá o app roda
+em **modo demonstração**, também disponível em casa com `SINGWITHME_DEMO=1`:
+
+- o acervo são três músicas tradicionais sintetizadas (`bun scripts/make-demo.ts`), sem importação;
+- o anfitrião se identifica com `SINGWITHME_HOST_PIN` em "Sou o anfitrião", já que não existe `localhost`;
+- duplas, fila e ranking vivem na instância da função e **somem quando ela é reciclada**.
+
+Para uso de verdade, rode na sua máquina ou num servidor com processo e disco fixos.
 
 ## Adicionando músicas
 

@@ -3,3 +3,9 @@ data
 dist
 *.log
 .DS_Store
+.vercel
+# Built interface; the demo audio in public/media is versioned.
+public/index.html
+public/assets
+public/*.js
+public/*.css

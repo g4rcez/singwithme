@@ -71,7 +71,7 @@ export function App() {
       ) : route.page === "party" ? (
         <Party party={party} refresh={refresh} />
       ) : (
-        <Library />
+        <Library demo={party.demo} />
       )}
     </div>
   );
