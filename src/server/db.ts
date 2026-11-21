@@ -46,14 +46,23 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS performances_by_event ON performances (event_id, created_at)`,
 ];
 
-let ready: Promise<void> | null = null;
+/** Any fixed number: it names the advisory lock that serialises schema changes across instances. */
+const MIGRATION_LOCK = 7_420_313;
 
-/** Creates the tables on first use. Every request awaits it, so a cold start never races the schema. */
-export function migrate(): Promise<void> {
-  ready ??= (async () => {
+/**
+ * Creates the tables. Several serverless instances can start at once, and Postgres can fail two concurrent
+ * "CREATE TABLE IF NOT EXISTS" for the same table, so on Postgres it runs inside a transaction holding an
+ * advisory lock: the first instance creates everything and the others find it done.
+ */
+export async function migrate(): Promise<void> {
+  if (!process.env.DATABASE_URL) {
     for (const statement of SCHEMA) await sql.unsafe(statement);
-  })();
-  return ready;
+    return;
+  }
+  await sql.begin(async (tx) => {
+    await tx`SELECT pg_advisory_xact_lock(${MIGRATION_LOCK})`;
+    for (const statement of SCHEMA) await tx.unsafe(statement);
+  });
 }
 
 export const newId = () => crypto.randomUUID().replaceAll("-", "");

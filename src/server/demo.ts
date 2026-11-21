@@ -6,6 +6,7 @@ export async function seedDemoSongs(): Promise<void> {
   for (const song of DEMO_SONGS) {
     if (await getSong(song.id)) continue;
     const chart = demoChart(song);
+    // Another instance starting at the same time may insert it first; that is as good as inserting it here.
     await saveSong({
       id: song.id,
       groupId: null,
@@ -21,6 +22,8 @@ export async function seedDemoSongs(): Promise<void> {
       lines: chart.lines,
       notes: chart.notes,
       melody: null,
+    }).catch(async (error) => {
+      if (!(await getSong(song.id))) throw error;
     });
   }
 }

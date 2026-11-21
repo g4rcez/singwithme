@@ -78,11 +78,25 @@ const options = {
 /** Only built in accounts mode: offline installs never open a Postgres connection. */
 export const auth = AUTH_MODE === "accounts" ? betterAuth(options) : null;
 
-/** Creates or updates Better Auth's own tables. */
-export async function migrateAuth(): Promise<void> {
+/** Postgres errors raised when another instance created the same table or type a moment earlier. */
+const CREATED_ELSEWHERE = new Set(["42P07", "42710", "23505"]);
+
+/**
+ * Creates or updates Better Auth's own tables. Instances that start together can collide while creating
+ * them; the loser waits and re-plans, and by then there is nothing left to create.
+ */
+export async function migrateAuth(attempts = 5): Promise<void> {
   if (!auth) return;
-  const { runMigrations } = await getMigrations(options);
-  await runMigrations();
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const { runMigrations } = await getMigrations(options);
+      return await runMigrations();
+    } catch (error) {
+      const code = (error as { code?: string }).code ?? "";
+      if (attempt >= attempts || !CREATED_ELSEWHERE.has(code)) throw error;
+      await Bun.sleep(150 * attempt);
+    }
+  }
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);

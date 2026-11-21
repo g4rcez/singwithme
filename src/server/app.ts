@@ -48,8 +48,20 @@ const network = { addressOf: (_request: Request): string => "", port: 0 };
 
 /** One-time start-up work (schema, demo songs), awaited by every request so a cold start never races it. */
 let ready: Promise<void> | null = null;
+
+async function startUp(): Promise<void> {
+  await migrate();
+  // Better Auth's own migration runs after ours, so the lock above has already let the schema settle.
+  await migrateAuth();
+  if (DEMO) await seedDemoSongs();
+}
+
+/** A failed start-up is not remembered: the next request tries again instead of failing forever. */
 const prepare = () =>
-  (ready ??= Promise.all([migrate(), migrateAuth()]).then(() => (DEMO ? seedDemoSongs() : undefined)));
+  (ready ??= startUp().catch((error) => {
+    ready = null;
+    throw error;
+  }));
 
 type Handler = (request: Request, params: Record<string, string>) => unknown;
 
