@@ -9,7 +9,9 @@ import { DB_FILE } from "./paths";
  * text ids, integers for flags, doubles for timestamps, no dialect-specific functions.
  */
 export const sql = process.env.DATABASE_URL
-  ? new SQL(process.env.DATABASE_URL)
+  ? // Behind a transaction pooler (PgBouncer, Neon's "-pooler" hosts) a connection is not ours between
+    // statements, so named prepared statements cannot be reused.
+    new SQL({ url: process.env.DATABASE_URL, prepare: !/-pooler\./.test(process.env.DATABASE_URL), max: 5 })
   : new SQL({ adapter: "sqlite", filename: DB_FILE });
 
 const SCHEMA = [
