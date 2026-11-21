@@ -52,7 +52,7 @@ async function setup(owner = `${crypto.randomUUID()}@example.com`) {
 
 const queueOf = async (eventId: string) => (await eventState(eventId, true)).queue;
 const perform = (eventId: string, songId: string, singer: string, score: number) =>
-  addPerformance({ eventId, songId, singer, score, accuracy: score / 10000, difficulty: "normal" });
+  addPerformance({ eventId, songId, singer, score, accuracy: score / 100, difficulty: "normal" });
 
 beforeAll(migrate);
 
@@ -144,17 +144,17 @@ test("a group cannot queue another group's songs, but shared songs are open to a
 test("performances build the event history and the group's rankings", async () => {
   const { group, event, songs } = await setup();
   const second = await createEvent(group.id, "Sábado");
-  await perform(event.id, songs[0], "Ana & Bia", 7000);
-  await perform(event.id, songs[1], "Caio & Davi", 9000);
-  await perform(second.id, songs[0], "Edu & Fábio", 8000);
+  await perform(event.id, songs[0], "Ana & Bia", 70);
+  await perform(event.id, songs[1], "Caio & Davi", 90);
+  await perform(second.id, songs[0], "Edu & Fábio", 80);
 
   expect((await eventHistory(event.id)).map((entry) => entry.singer)).toEqual(["Ana & Bia", "Caio & Davi"]);
   expect((await groupHistory(group.id)).map((entry) => entry.eventName)).toEqual(["Sábado", "Sexta", "Sexta"]);
-  expect((await groupRanking(group.id)).map((entry) => entry.score)).toEqual([9000, 8000, 7000]);
+  expect((await groupRanking(group.id)).map((entry) => entry.score)).toEqual([90, 80, 70]);
   expect((await groupRanking(group.id, songs[0])).map((entry) => entry.singer)).toEqual(["Edu & Fábio", "Ana & Bia"]);
 
   const [best] = (await listSongs(group.id)).filter((song) => song.id === songs[0]);
-  expect(best).toMatchObject({ bestScore: 8000, bestPlayer: "Edu & Fábio" });
+  expect(best).toMatchObject({ bestScore: 80, bestPlayer: "Edu & Fábio" });
   expect((await listGroups((await setup()).owner))[0]!.events[0]!.performances).toBe(0);
 });
 
@@ -162,7 +162,7 @@ test("closing an event freezes it but keeps its history", async () => {
   const { event, songs } = await setup();
   const duo = (await createDuo(event.id, ["Ana", "Bia"])).duo;
   await enqueue(event.id, songs[0], duo.id);
-  await perform(event.id, songs[0], "Ana & Bia", 5000);
+  await perform(event.id, songs[0], "Ana & Bia", 50);
   const token = await currentInvite(event.id);
 
   await setEventStatus(event.id, "closed");

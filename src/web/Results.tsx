@@ -72,7 +72,7 @@ export function Results({ eventId, song, result, difficulty, singer, onAgain }: 
         </p>
         <p className="mt-2 text-2xl font-bold text-accent">{result.rating}</p>
         <p className="mt-4 text-sm text-white/60">
-          {Math.round(result.accuracy * 100)}% no alvo · {DIFFICULTY_LABEL[difficulty]}
+          de 100 · {DIFFICULTY_LABEL[difficulty]}
         </p>
         <p className="mt-1 text-xs text-white/40">{MODE_HELP[result.mode]}</p>
 

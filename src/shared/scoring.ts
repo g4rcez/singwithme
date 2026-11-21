@@ -3,7 +3,7 @@ import type { Difficulty, Line, Melody, Note, ScoringMode } from "./types";
 
 /** Scoring grid: the song is cut into slots and each slot is judged at most once. */
 export const SLOT_SECONDS = 0.04;
-export const MAX_SCORE = 10000;
+export const MAX_SCORE = 100;
 
 /** Allowed distance from the target pitch, in semitones. */
 export const TOLERANCE: Record<Difficulty, number> = { easy: 2, normal: 1, hard: 0.5 };
@@ -90,11 +90,11 @@ export function buildTargets(song: ScorableSong): { mode: ScoringMode; targets: 
 }
 
 export function ratingFor(score: number): string {
-  if (score >= 9000) return "Lenda do karaokê";
-  if (score >= 7500) return "Estrela";
-  if (score >= 6000) return "Cantor de respeito";
-  if (score >= 4000) return "Promissor";
-  if (score >= 2000) return "Cantor de chuveiro";
+  if (score >= 90) return "Lenda do karaokê";
+  if (score >= 75) return "Estrela";
+  if (score >= 60) return "Cantor de respeito";
+  if (score >= 40) return "Promissor";
+  if (score >= 20) return "Cantor de chuveiro";
   return "Desafinado com orgulho";
 }
 

@@ -19,7 +19,7 @@ export const MODE_LABEL: Record<ScoringMode, string> = {
 };
 
 export const MODE_HELP: Record<ScoringMode, string> = {
-  notes: "Pontua pela afinação em cada nota do mapa UltraStar.",
+  notes: "Pontua pela afinação em cada nota do mapa da música.",
   melody: "Pontua comparando sua voz com a melodia estimada da gravação original.",
   rhythm: "Sem melodia de referência: pontua por cantar enquanto a letra está na tela.",
 };

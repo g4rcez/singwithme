@@ -88,7 +88,7 @@ Sem letra anexada, a ordem de busca é:
 
 ## Pontuação
 
-De 0 a 10.000 por música, comparando a nota cantada (detector YIN no navegador) com o alvo a cada 40 ms.
+De 0 a 100 por música, comparando a nota cantada (detector YIN no navegador) com o alvo a cada 40 ms.
 Oitavas são perdoadas. A tolerância depende da dificuldade: 2, 1 ou 0,5 semitom.
 
 | Modo | Quando | Alvo |
