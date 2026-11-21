@@ -54,18 +54,21 @@ O código é o mesmo: o cliente SQL do Bun fala com os dois bancos e as consulta
 **Local**: os celulares precisam estar no mesmo Wi-Fi (`HOST=127.0.0.1` desliga o acesso pela rede). Se o
 endereço do QR code sair errado (várias placas de rede, túnel), defina `PUBLIC_URL=http://endereço:porta`.
 
-**Hospedado** (`vercel.json`, runtime Bun, entrada em `server.ts`). Contas, sessões e cookies são do
-[Better Auth](https://better-auth.com), montado em `/api/auth`; `src/server/auth.ts` só o configura.
+**Hospedado** (`vercel.json`, runtime Bun, entrada em `server.ts`). O login é por código enviado ao e-mail,
+sem senha: contas, códigos, sessões e cookies são do [Better Auth](https://better-auth.com) (plugin
+`emailOTP`), montado em `/api/auth`; `src/server/auth.ts` só o configura. O código tem 6 dígitos, vale
+10 minutos e aceita 5 tentativas; cada endereço pede no máximo 3 códigos por minuto.
 
 | Variável | Para quê |
 | --- | --- |
 | `DATABASE_URL` | Postgres (dados do app e tabelas do Better Auth, criadas na primeira requisição) |
 | `BETTER_AUTH_SECRET` | chave que assina as sessões; gere com `openssl rand -hex 32` |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | liga "Entrar com GitHub"; callback `https://SEU-DOMINIO/api/auth/callback/github` |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | liga "Entrar com Google"; callback `https://SEU-DOMINIO/api/auth/callback/google` |
+| `RESEND_API_KEY` | envia os códigos pelo [Resend](https://resend.com); sem ela, a instância hospedada não tem login |
+| `SINGWITHME_EMAIL_FROM` | remetente, ex. `SingWithMe <login@seudominio.com>`; o padrão de teste do Resend só entrega para o dono da conta Resend |
 | `SINGWITHME_ALLOWED_EMAILS` | quem pode ter conta, separado por vírgula; vazia libera qualquer e-mail |
-| `SINGWITHME_PASSWORD_LOGIN=1` | liga e-mail e senha; não comprova a posse do e-mail, então só para testes |
 | `BETTER_AUTH_URL` | endereço público, se não for o domínio de produção da Vercel |
+
+Rodando localmente com banco e sem `RESEND_API_KEY`, o código aparece no terminal do servidor.
 
 **Segredos nunca entram no repositório.** Cadastre-os nas variáveis de ambiente da Vercel (Project Settings →
 Environment Variables) ou nos secrets do GitHub; `.env` e `.env.*` estão no `.gitignore`.

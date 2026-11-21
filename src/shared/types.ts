@@ -160,8 +160,8 @@ export interface Me {
   user: { email: string } | null;
   /** accounts: hosted, sign in through Better Auth. local: whoever sits at the karaoke machine (or knows the PIN). */
   auth: "accounts" | "local";
-  /** Sign-in methods switched on for this instance (accounts mode). */
-  methods: { github: boolean; google: boolean; password: boolean };
+  /** Whether this instance can e-mail sign-in codes (accounts mode). */
+  emailSignIn: boolean;
   pinRequired: boolean;
   /** Fixed library: importing and deleting songs is disabled. */
   demo: boolean;

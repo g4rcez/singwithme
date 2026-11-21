@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { BunRequest, HTMLBundle } from "bun";
 import { MAX_SCORE } from "../shared/scoring";
 import type { Difficulty, EventStatus, Invite, Me } from "../shared/types";
-import { auth, AUTH_MODE, currentUser, LOCAL_USER, migrateAuth, SIGN_IN_METHODS } from "./auth";
+import { auth, AUTH_MODE, currentUser, EMAIL_SIGN_IN, LOCAL_USER, migrateAuth } from "./auth";
 import { deleteSong, getSong, listSongs, migrate, updateSong } from "./db";
 import { seedDemoSongs } from "./demo";
 import { HttpError } from "./errors";
@@ -219,7 +219,7 @@ export function startServer(pages: Record<string, HTMLBundle> = {}) {
         return {
           user: user ? { email: user } : null,
           auth: AUTH_MODE,
-          methods: SIGN_IN_METHODS,
+          emailSignIn: EMAIL_SIGN_IN,
           pinRequired: HOST_PIN !== null,
           demo: DEMO,
         };

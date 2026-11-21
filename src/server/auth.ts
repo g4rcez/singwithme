@@ -1,15 +1,18 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
+import { emailOTP } from "better-auth/plugins/email-otp";
 import { Pool } from "pg";
 import type { Me } from "../shared/types";
+import { CAN_SEND_EMAIL, CODE_MINUTES, sendSignInCode } from "./mailer";
 import { CLOUD, HOST_PIN } from "./paths";
 
 /**
  * Who is using the app.
  *
- * - "accounts": the hosted service. Sign-in, sessions, cookies and the user tables are all Better Auth's
- *   (https://better-auth.com), mounted at /api/auth. This file only configures it.
+ * - "accounts": the hosted service. People sign in with a one-time code sent to their e-mail. Accounts,
+ *   codes, sessions and cookies are all Better Auth's (https://better-auth.com), mounted at /api/auth;
+ *   this file only configures it.
  * - "local": offline use, with no accounts at all. Whoever sits at the karaoke machine (or knows the host
  *   PIN) is the only user.
  *
@@ -20,6 +23,7 @@ const SECRET = process.env.BETTER_AUTH_SECRET;
 
 export const AUTH_MODE: Me["auth"] = DATABASE_URL && SECRET ? "accounts" : "local";
 export const LOCAL_USER = "local@singwithme";
+export const EMAIL_SIGN_IN = AUTH_MODE === "accounts" && CAN_SEND_EMAIL;
 
 /** When set, only these addresses may have an account. */
 const ALLOWED_EMAILS = (process.env.SINGWITHME_ALLOWED_EMAILS ?? "")
@@ -30,20 +34,7 @@ const ALLOWED_EMAILS = (process.env.SINGWITHME_ALLOWED_EMAILS ?? "")
 export const isAllowed = (email: string, allowed = ALLOWED_EMAILS) =>
   allowed.length === 0 || allowed.includes(email.trim().toLowerCase());
 
-const provider = (id: string | undefined, secret: string | undefined) =>
-  id && secret ? { clientId: id, clientSecret: secret } : undefined;
-
-const github = provider(process.env.GITHUB_CLIENT_ID, process.env.GITHUB_CLIENT_SECRET);
-const google = provider(process.env.GOOGLE_CLIENT_ID, process.env.GOOGLE_CLIENT_SECRET);
-/** E-mail and password proves nothing about who owns the address, so it is opt-in (self-hosting, tests). */
-const password = process.env.SINGWITHME_PASSWORD_LOGIN === "1";
-
-/** Which sign-in buttons the interface should offer. */
-export const SIGN_IN_METHODS: Me["methods"] = {
-  github: AUTH_MODE === "accounts" && github !== undefined,
-  google: AUTH_MODE === "accounts" && google !== undefined,
-  password: AUTH_MODE === "accounts" && password,
-};
+const NOT_ALLOWED = "Este e-mail ainda não tem acesso ao SingWithMe.";
 
 function publicUrl(): string | undefined {
   if (process.env.BETTER_AUTH_URL) return process.env.BETTER_AUTH_URL;
@@ -52,23 +43,47 @@ function publicUrl(): string | undefined {
   return production ? `https://${production}` : undefined;
 }
 
+const SEND_CODE_PATH = "/email-otp/send-verification-otp";
+
 const options = {
   appName: "SingWithMe",
   secret: SECRET,
   baseURL: publicUrl(),
   database: new Pool({ connectionString: DATABASE_URL, max: 3 }),
-  emailAndPassword: { enabled: password },
-  socialProviders: { ...(github && { github }), ...(google && { google }) },
+  plugins: [
+    emailOTP({
+      otpLength: 6,
+      expiresIn: CODE_MINUTES * 60,
+      allowedAttempts: 5,
+      // Sent and awaited inside the request: on serverless, work left running after the response is lost.
+      sendVerificationOTP: async ({ email, otp }) => sendSignInCode(email, otp),
+    }),
+  ],
+  // Counted in the database, so the limits hold across every serverless instance.
+  rateLimit: {
+    enabled: true,
+    storage: "database",
+    customRules: {
+      [SEND_CODE_PATH]: { window: 60, max: 3 },
+      "/sign-in/email-otp": { window: 60, max: 10 },
+    },
+  },
   // Signed cookie copy of the session, so the frequent queue polling does not hit the database each time.
   session: { cookieCache: { enabled: true, maxAge: 300 } },
+  hooks: {
+    // Refuse before a code is generated or an e-mail goes out: nobody off the list receives anything.
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== SEND_CODE_PATH) return;
+      const email = typeof ctx.body?.email === "string" ? ctx.body.email : "";
+      if (!isAllowed(email)) throw new APIError("FORBIDDEN", { message: NOT_ALLOWED });
+    }),
+  },
   databaseHooks: {
     user: {
       create: {
         // Runs for every way of creating an account, so the allowlist cannot be sidestepped.
         before: async (user) => {
-          if (!isAllowed(user.email)) {
-            throw new APIError("FORBIDDEN", { message: "Este e-mail ainda não tem acesso ao SingWithMe." });
-          }
+          if (!isAllowed(user.email)) throw new APIError("FORBIDDEN", { message: NOT_ALLOWED });
         },
       },
     },
