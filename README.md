@@ -67,6 +67,8 @@ sem senha: contas, códigos, sessões e cookies são do [Better Auth](https://be
 | `SINGWITHME_EMAIL_FROM` | remetente, ex. `SingWithMe <login@seudominio.com>`; o padrão de teste do Resend só entrega para o dono da conta Resend |
 | `SINGWITHME_ALLOWED_EMAILS` | quem pode ter conta, separado por vírgula; vazia libera qualquer e-mail |
 | `BETTER_AUTH_URL` | endereço público, se não for o domínio de produção da Vercel |
+| `SINGWITHME_TRUSTED_ORIGINS` | outros endereços que podem chamar o login, separados por vírgula (ex. um domínio próprio servido por outro proxy); o endereço em que a página foi aberta já é aceito |
+| `SINGWITHME_LOG_CODES=1` | provisório: sem Resend, escreve o código nos logs do projeto na Vercel (visíveis só para o time) |
 
 Rodando localmente com banco e sem `RESEND_API_KEY`, o código aparece no terminal do servidor.
 

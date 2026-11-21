@@ -45,10 +45,30 @@ function publicUrl(): string | undefined {
 
 const SEND_CODE_PATH = "/email-otp/send-verification-otp";
 
+/** Extra origins allowed to call the auth API, separated by commas (a custom domain, for instance). */
+const EXTRA_ORIGINS = (process.env.SINGWITHME_TRUSTED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+/**
+ * The app answers on several addresses (on Vercel: the production domain, the team alias and one per
+ * deployment), and a browser on any of them talks to that same address. Better Auth checks the Origin header
+ * to stop other sites from posting to /api/auth, so the address the request arrived on is trusted, and so
+ * are the configured ones; a page served anywhere else is still refused.
+ */
+function trustedOrigins(request?: Request): string[] {
+  const host = request?.headers.get("x-forwarded-host") ?? request?.headers.get("host");
+  if (!host) return EXTRA_ORIGINS;
+  const protocol = request?.headers.get("x-forwarded-proto") ?? (CLOUD ? "https" : "http");
+  return [`${protocol}://${host}`, ...EXTRA_ORIGINS];
+}
+
 const options = {
   appName: "SingWithMe",
   secret: SECRET,
   baseURL: publicUrl(),
+  trustedOrigins,
   database: new Pool({ connectionString: DATABASE_URL, max: 3 }),
   plugins: [
     emailOTP({

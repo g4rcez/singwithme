@@ -3,8 +3,10 @@ import { CLOUD } from "./paths";
 
 /**
  * Sends the sign-in codes. Delivery goes through Resend (https://resend.com) when RESEND_API_KEY is set.
- * Without it, a local install prints the code to the terminal instead, which is enough to develop with;
- * a hosted install has no way to deliver codes and switches e-mail sign-in off.
+ *
+ * Without it, the code is written to the server log instead: the terminal on a local install, the project's
+ * runtime logs on Vercel, which only the project's own team can read. A hosted install only does that when
+ * SINGWITHME_LOG_CODES=1, as a stopgap until e-mail delivery is configured.
  */
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 /** Resend only delivers from a verified domain; its test sender reaches nobody but the account owner. */
@@ -12,7 +14,9 @@ const FROM = process.env.SINGWITHME_EMAIL_FROM ?? "SingWithMe <onboarding@resend
 
 const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
-export const CAN_SEND_EMAIL = resend !== null || !CLOUD;
+const LOG_CODES = process.env.SINGWITHME_LOG_CODES === "1";
+
+export const CAN_SEND_EMAIL = resend !== null || !CLOUD || LOG_CODES;
 
 export const CODE_MINUTES = 10;
 
@@ -36,7 +40,7 @@ function render(code: string): { subject: string; text: string; html: string } {
 export async function sendSignInCode(email: string, code: string): Promise<void> {
   const message = render(code);
   if (!resend) {
-    // Local development only: CAN_SEND_EMAIL keeps hosted instances from ever getting here.
+    // Local development, or a hosted install that opted in with SINGWITHME_LOG_CODES (see above).
     console.log(`[singwithme] código de acesso para ${email}: ${code}`);
     return;
   }
