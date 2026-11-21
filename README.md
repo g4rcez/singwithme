@@ -1,9 +1,8 @@
 # SingWithMe
 
 Karaokê com pontuação por afinação, fila de duplas e histórico por evento. Roda na sua máquina (offline) ou
-hospedado. No modo local as músicas, as letras e
-os placares ficam em `./data` e nada do microfone sai do navegador. A internet só é usada na hora de importar
-uma música (YouTube e busca de letra).
+hospedado. O áudio do microfone nunca sai do navegador. No modo local tudo fica em `./data` e a internet só é
+usada na hora de importar uma música (YouTube e busca de letra).
 
 ## Como rodar
 
@@ -26,31 +25,45 @@ microfone captar só a sua voz.
 Variáveis: `PORT`, `HOST`, `PUBLIC_URL`, `SINGWITHME_HOST_PIN`, `SINGWITHME_DEMO`, `SINGWITHME_DATA` (pasta de dados), `SINGWITHME_WHISPER_MODEL` (padrão `small`;
 `medium`/`large-v3` erram menos em idiomas não europeus), `SINGWITHME_LRCLIB_URL` (instância própria do LRCLIB).
 
-## Festa: duplas, fila e cadastro por QR code
+## Grupos, eventos e histórico
 
-Na aba **Fila e duplas** o computador do karaokê mostra um QR code. Cada dupla aponta a câmera do celular,
-informa os dois nomes e passa a escolher músicas e acompanhar a fila pelo próprio telefone.
+- Um **grupo** é quem usa o karaokê: um bar, uma família, uma empresa. Tem seus membros, seu acervo e seus eventos.
+- Um **evento** é uma noite de karaokê. As duplas, a fila e tudo o que foi cantado pertencem a ele.
+- Cada música cantada vira uma **apresentação**: o histórico do evento, o histórico do grupo e os rankings
+  (por música e geral do grupo) saem daí. Encerrar um evento esvazia a fila e guarda o histórico.
+
+Na aba **Fila e duplas** de um evento aberto aparece um QR code. Cada dupla aponta a câmera do celular, informa
+os dois nomes e passa a escolher músicas e acompanhar a fila pelo telefone, sem criar conta.
 
 - **Cada QR code vale um cadastro**: assim que uma dupla se registra, o código é trocado por outro.
-- As duplas também podem ser criadas direto no computador, que reordena a fila e chama a próxima dupla.
-- Ao cantar a partir da fila, o placar é salvo no nome da dupla e ela sai da fila ao terminar.
-- Duplas e fila ficam **só na memória**: fechar o karaokê encerra a festa. Músicas e ranking continuam em disco.
+- As duplas também podem ser criadas direto no painel, que reordena a fila e chama a próxima dupla.
+- Ao cantar a partir da fila, a apresentação é salva no nome da dupla e ela sai da fila.
+- Só membros do grupo importam ou apagam músicas, gravam apresentações e controlam a fila; pelo celular a
+  dupla só mexe na própria vez.
 
-O celular precisa estar no mesmo Wi-Fi. O servidor escuta em toda a rede local (`HOST=127.0.0.1` desliga
-isso), mas só quem está no próprio computador importa ou apaga músicas, grava placares e controla a fila;
-pelo celular a dupla só mexe na própria vez. Se o endereço do QR code sair errado (várias placas de rede,
-túnel), defina `PUBLIC_URL=http://endereço:porta`.
+## Dois jeitos de rodar
 
-## Demonstração na nuvem (Vercel)
+| | Local (offline) | Hospedado |
+| --- | --- | --- |
+| Banco | arquivo SQLite em `./data` | Postgres, via `DATABASE_URL` |
+| Quem é anfitrião | quem está no computador (`localhost`) ou sabe o `SINGWITHME_HOST_PIN` | quem entra com código enviado por e-mail |
+| Acervo | importado pelo YouTube ou por arquivo | músicas de demonstração (`SINGWITHME_DEMO=1`, sempre ligado na Vercel) |
 
-O repositório publica na Vercel como está (`vercel.json`, runtime Bun, entrada em `server.ts`). Lá o app roda
-em **modo demonstração**, também disponível em casa com `SINGWITHME_DEMO=1`:
+O código é o mesmo: o cliente SQL do Bun fala com os dois bancos e as consultas usam só o que ambos entendem.
 
-- o acervo são três músicas tradicionais sintetizadas (`bun scripts/make-demo.ts`), sem importação;
-- o anfitrião se identifica com `SINGWITHME_HOST_PIN` em "Sou o anfitrião", já que não existe `localhost`;
-- duplas, fila e ranking vivem na instância da função e **somem quando ela é reciclada**.
+**Local**: os celulares precisam estar no mesmo Wi-Fi (`HOST=127.0.0.1` desliga o acesso pela rede). Se o
+endereço do QR code sair errado (várias placas de rede, túnel), defina `PUBLIC_URL=http://endereço:porta`.
 
-Para uso de verdade, rode na sua máquina ou num servidor com processo e disco fixos.
+**Hospedado** (`vercel.json`, runtime Bun, entrada em `server.ts`):
+
+- `DATABASE_URL`: Postgres (Neon).
+- `NEON_AUTH_BASE_URL`: liga o login por e-mail. O código de uso único é enviado e conferido pelo Neon Auth,
+  de servidor para servidor; a sessão é um cookie assinado pelo próprio app.
+- `SINGWITHME_SESSION_SECRET`: chave que assina as sessões.
+- `SINGWITHME_ALLOWED_EMAILS`: lista, separada por vírgula, de quem pode entrar. Vazia libera qualquer e-mail.
+
+Na Vercel não há ffmpeg nem disco durável, então não se importa música por lá: o acervo são três músicas
+tradicionais sintetizadas (`bun scripts/make-demo.ts`).
 
 ## Adicionando músicas
 
@@ -99,10 +112,11 @@ Importe apenas músicas que você tem direito de usar; baixar do YouTube pode vi
 
 ```bash
 bun dev          # servidor com hot reload
-bun test
+bun test                                   # SQLite
+DATABASE_URL=postgres://... bun test       # as mesmas consultas no Postgres
 bun run typecheck
 ```
 
 - `src/shared`: parsers (LRC, VTT, UltraStar), detector de afinação e pontuação, usados no servidor e no navegador.
-- `src/server`: API HTTP (Bun), SQLite e o pipeline de importação.
+- `src/server`: API HTTP (Bun), banco (`db.ts`, `store.ts`), login (`auth.ts`) e o pipeline de importação.
 - `src/web`: interface em React + Tailwind.
