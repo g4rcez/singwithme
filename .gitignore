@@ -4,6 +4,9 @@ dist
 *.log
 .DS_Store
 .vercel
+# Secrets live in the Vercel / GitHub environment settings, never in the repository.
+.env
+.env.*
 # Built interface; the demo audio in public/media is versioned.
 public/index.html
 public/assets

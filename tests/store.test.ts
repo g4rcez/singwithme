@@ -1,5 +1,5 @@
 import { beforeAll, expect, test } from "bun:test";
-import { createSession, readSession } from "../src/server/auth";
+import { isAllowed } from "../src/server/auth";
 import { listSongs, migrate, saveSong } from "../src/server/db";
 import {
   addPerformance,
@@ -178,15 +178,8 @@ test("closing an event freezes it but keeps its history", async () => {
   expect(await queueOf(event.id)).toHaveLength(1);
 });
 
-test("sessions are signed and expire", () => {
-  const now = Date.now();
-  const token = createSession("ana@example.com", now);
-  expect(readSession(token, now)).toBe("ana@example.com");
-  expect(readSession(token, now + 31 * 86_400_000)).toBeNull();
-
-  const [payload, signature] = token.split(".");
-  const forged = Buffer.from(JSON.stringify({ email: "eve@example.com", exp: now + 1e9 })).toString("base64url");
-  expect(readSession(`${forged}.${signature}`, now)).toBeNull();
-  expect(readSession(`${payload}.${signature!.slice(0, -2)}xx`, now)).toBeNull();
-  expect(readSession("garbage", now)).toBeNull();
+test("the allowlist limits who may have an account", () => {
+  expect(isAllowed("anyone@example.com", [])).toBe(true);
+  expect(isAllowed(" Ana@Example.com ", ["ana@example.com"])).toBe(true);
+  expect(isAllowed("eve@example.com", ["ana@example.com"])).toBe(false);
 });

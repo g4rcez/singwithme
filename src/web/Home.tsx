@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { Group, Me, Performance } from "../shared/types";
 import { api } from "./api";
+import { authClient } from "./authClient";
 import { when } from "./format";
 import { PerformanceTable } from "./Ranking";
 
@@ -85,10 +86,10 @@ export function Home({ me, onSignedOut }: { me: Me; onSignedOut: () => void }) {
         <p className="text-2xl font-black tracking-tight">
           Sing<span className="text-accent">With</span>Me
         </p>
-        {me.auth === "email" && me.user && (
+        {me.auth === "accounts" && me.user && (
           <div className="flex items-center gap-3 text-sm text-white/60">
             <span className="hidden sm:inline">{me.user.email}</span>
-            <button className="btn" onClick={() => api.logout().then(onSignedOut)}>
+            <button className="btn" onClick={() => authClient.signOut().then(onSignedOut)}>
               Sair
             </button>
           </div>

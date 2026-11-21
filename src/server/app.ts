@@ -3,7 +3,7 @@ import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import type { BunRequest, HTMLBundle } from "bun";
 import type { Difficulty, EventStatus, Invite, Me } from "../shared/types";
-import { AUTH_MODE, cleanEmail, currentUser, LOCAL_USER, requestCode, sessionCookie, verifyCode } from "./auth";
+import { auth, AUTH_MODE, currentUser, LOCAL_USER, migrateAuth, SIGN_IN_METHODS } from "./auth";
 import { deleteSong, getSong, listSongs, migrate, updateSong } from "./db";
 import { seedDemoSongs } from "./demo";
 import { HttpError } from "./errors";
@@ -47,7 +47,8 @@ const network = { addressOf: (_request: Request): string => "", port: 0 };
 
 /** One-time start-up work (schema, demo songs), awaited by every request so a cold start never races it. */
 let ready: Promise<void> | null = null;
-const prepare = () => (ready ??= migrate().then(() => (DEMO ? seedDemoSongs() : undefined)));
+const prepare = () =>
+  (ready ??= Promise.all([migrate(), migrateAuth()]).then(() => (DEMO ? seedDemoSongs() : undefined)));
 
 type Handler = (request: Request, params: Record<string, string>) => unknown;
 
@@ -70,16 +71,21 @@ const body = async (request: Request) => ((await request.json().catch(() => ({})
 
 const userOf = (request: Request) => currentUser(request, network.addressOf(request));
 
+async function signedIn(request: Request): Promise<string> {
+  const user = await userOf(request);
+  if (!user) throw new HttpError("Entre na sua conta para continuar.", 401);
+  return user;
+}
+
 /** The signed-in member of a group, or an error. Members run the group's events and library. */
 async function memberOf(request: Request, groupId: string): Promise<string> {
-  const user = userOf(request);
-  if (!user) throw new HttpError("Entre na sua conta para continuar.", 401);
+  const user = await signedIn(request);
   if (!(await isMember(groupId, user))) throw new HttpError("Você não faz parte deste grupo.", 403);
   return user;
 }
 
 async function isHostOf(request: Request, groupId: string): Promise<boolean> {
-  const user = userOf(request);
+  const user = await userOf(request);
   return user !== null && (await isMember(groupId, user));
 }
 
@@ -100,7 +106,7 @@ function libraryUnlocked(): void {
   if (DEMO) throw new HttpError("Esta é uma instância de demonstração: o acervo é fixo.", 403);
 }
 
-/** The app's public address: used in QR codes and as the Origin of auth requests. */
+/** The app's public address, as it must appear in QR codes. */
 function appOrigin(request: Request): string {
   if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/+$/, "");
   const forwardedHost = request.headers.get("x-forwarded-host");
@@ -184,46 +190,34 @@ export function startServer(pages: Record<string, HTMLBundle> = {}) {
       ...pages,
 
       // ---- account
-      "/api/me": route((request): Me => {
-        const user = userOf(request);
-        return { user: user ? { email: user } : null, auth: AUTH_MODE, pinRequired: HOST_PIN !== null, demo: DEMO };
+      "/api/me": route(async (request): Promise<Me> => {
+        const user = await userOf(request);
+        return {
+          user: user ? { email: user } : null,
+          auth: AUTH_MODE,
+          methods: SIGN_IN_METHODS,
+          pinRequired: HOST_PIN !== null,
+          demo: DEMO,
+        };
       }),
-      "/api/auth/request": {
-        POST: route(async (request) => {
-          await requestCode(cleanEmail((await body(request)).email), appOrigin(request));
-        }),
-      },
-      "/api/auth/verify": {
-        POST: route(async (request) => {
-          const { email, code } = await body(request);
-          const session = await verifyCode(cleanEmail(email), code, appOrigin(request));
-          return new Response(JSON.stringify({ ok: true }), {
-            headers: { "Content-Type": "application/json", "Set-Cookie": sessionCookie(session) },
-          });
-        }),
-      },
-      "/api/auth/logout": {
-        POST: route(
-          () =>
-            new Response(JSON.stringify({ ok: true }), {
-              headers: { "Content-Type": "application/json", "Set-Cookie": sessionCookie(null) },
-            }),
-        ),
+      // Sign-in, sign-out, OAuth callbacks and sessions are served by Better Auth itself.
+      "/api/auth/*": async (request: Request) => {
+        if (!auth) return fail("Esta instalação não usa contas.", 404);
+        await prepare();
+        return auth.handler(request);
       },
 
       // ---- groups
       "/api/groups": {
         GET: route(async (request) => {
-          const user = userOf(request);
-          if (!user) throw new HttpError("Entre na sua conta para continuar.", 401);
+          const user = await signedIn(request);
           const groups = await listGroups(user);
           // Offline there is exactly one person, so the first group creates itself.
           if (!groups.length && user === LOCAL_USER) return [await createGroup("Meu karaokê", user)];
           return groups;
         }),
         POST: route(async (request) => {
-          const user = userOf(request);
-          if (!user) throw new HttpError("Entre na sua conta para continuar.", 401);
+          const user = await signedIn(request);
           return createGroup((await body(request)).name, user);
         }),
       },
@@ -392,8 +386,8 @@ export function startServer(pages: Record<string, HTMLBundle> = {}) {
 
       // ---- importing (needs ffmpeg and a real disk, so never in demo mode)
       "/api/tools": route(() => toolStatuses()),
-      "/api/jobs/:id": route((request, { id }) => {
-        if (!userOf(request)) throw new HttpError("Entre na sua conta para continuar.", 401);
+      "/api/jobs/:id": route(async (request, { id }) => {
+        await signedIn(request);
         const job = getJob(id!);
         if (!job) throw new HttpError("Importação não encontrada.", 404);
         return job;

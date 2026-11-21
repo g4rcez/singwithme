@@ -54,13 +54,21 @@ O código é o mesmo: o cliente SQL do Bun fala com os dois bancos e as consulta
 **Local**: os celulares precisam estar no mesmo Wi-Fi (`HOST=127.0.0.1` desliga o acesso pela rede). Se o
 endereço do QR code sair errado (várias placas de rede, túnel), defina `PUBLIC_URL=http://endereço:porta`.
 
-**Hospedado** (`vercel.json`, runtime Bun, entrada em `server.ts`):
+**Hospedado** (`vercel.json`, runtime Bun, entrada em `server.ts`). Contas, sessões e cookies são do
+[Better Auth](https://better-auth.com), montado em `/api/auth`; `src/server/auth.ts` só o configura.
 
-- `DATABASE_URL`: Postgres (Neon).
-- `NEON_AUTH_BASE_URL`: liga o login por e-mail. O código de uso único é enviado e conferido pelo Neon Auth,
-  de servidor para servidor; a sessão é um cookie assinado pelo próprio app.
-- `SINGWITHME_SESSION_SECRET`: chave que assina as sessões.
-- `SINGWITHME_ALLOWED_EMAILS`: lista, separada por vírgula, de quem pode entrar. Vazia libera qualquer e-mail.
+| Variável | Para quê |
+| --- | --- |
+| `DATABASE_URL` | Postgres (dados do app e tabelas do Better Auth, criadas na primeira requisição) |
+| `BETTER_AUTH_SECRET` | chave que assina as sessões; gere com `openssl rand -hex 32` |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | liga "Entrar com GitHub"; callback `https://SEU-DOMINIO/api/auth/callback/github` |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | liga "Entrar com Google"; callback `https://SEU-DOMINIO/api/auth/callback/google` |
+| `SINGWITHME_ALLOWED_EMAILS` | quem pode ter conta, separado por vírgula; vazia libera qualquer e-mail |
+| `SINGWITHME_PASSWORD_LOGIN=1` | liga e-mail e senha; não comprova a posse do e-mail, então só para testes |
+| `BETTER_AUTH_URL` | endereço público, se não for o domínio de produção da Vercel |
+
+**Segredos nunca entram no repositório.** Cadastre-os nas variáveis de ambiente da Vercel (Project Settings →
+Environment Variables) ou nos secrets do GitHub; `.env` e `.env.*` estão no `.gitignore`.
 
 Na Vercel não há ffmpeg nem disco durável, então não se importa música por lá: o acervo são três músicas
 tradicionais sintetizadas (`bun scripts/make-demo.ts`).

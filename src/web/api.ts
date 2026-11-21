@@ -48,9 +48,6 @@ const id = encodeURIComponent;
 
 export const api = {
   me: () => call<Me>("/api/me"),
-  requestCode: (email: string) => call<Ok>("/api/auth/request", send("POST", { email })),
-  verifyCode: (email: string, code: string) => call<Ok>("/api/auth/verify", send("POST", { email, code })),
-  logout: () => call<Ok>("/api/auth/logout", send("POST")),
 
   groups: () => call<Group[]>("/api/groups"),
   createGroup: (name: string) => call<Group>("/api/groups", send("POST", { name })),

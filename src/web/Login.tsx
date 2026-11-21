@@ -1,6 +1,10 @@
 import { useState, type FormEvent } from "react";
 import type { Me } from "../shared/types";
 import { api, hostPin } from "./api";
+import { authClient } from "./authClient";
+
+/** Where Better Auth sends the browser when a sign-in is refused (for example, an address off the allowlist). */
+const REFUSED = "/?acesso=negado";
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
@@ -16,92 +20,96 @@ function Frame({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Sign-in with a one-time code sent by e-mail. */
-function EmailLogin({ onSignedIn }: { onSignedIn: () => void }) {
-  const [email, setEmail] = useState("");
-  const [sentTo, setSentTo] = useState<string | null>(null);
+const PROVIDERS = [
+  { id: "github", label: "Entrar com GitHub" },
+  { id: "google", label: "Entrar com Google" },
+] as const;
+
+function PasswordForm({ onSignedIn }: { onSignedIn: () => void }) {
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const run = async (action: () => Promise<unknown>, done: () => void) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const email = String(data.get("email"));
+    const password = String(data.get("password"));
     setBusy(true);
-    setError(null);
-    try {
-      await action();
-      done();
-    } catch (cause) {
-      setError((cause as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const requestCode = (event: FormEvent) => {
-    event.preventDefault();
-    void run(
-      () => api.requestCode(email),
-      () => setSentTo(email.trim()),
-    );
-  };
-
-  const verify = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const code = String(new FormData(event.currentTarget).get("code"));
-    void run(() => api.verifyCode(sentTo ?? email, code), onSignedIn);
+    const { error: failure } = creating
+      ? await authClient.signUp.email({ email, password, name: email.split("@")[0] ?? email })
+      : await authClient.signIn.email({ email, password });
+    setBusy(false);
+    if (failure) return setError(failure.message ?? "Não foi possível entrar.");
+    onSignedIn();
   };
 
   return (
+    <form onSubmit={submit} className="space-y-3">
+      <input
+        className="field"
+        name="email"
+        type="email"
+        autoComplete="email"
+        placeholder="voce@exemplo.com"
+        aria-label="E-mail"
+        required
+      />
+      <input
+        className="field"
+        name="password"
+        type="password"
+        autoComplete={creating ? "new-password" : "current-password"}
+        placeholder="Senha"
+        aria-label="Senha"
+        minLength={8}
+        required
+      />
+      {error && <p className="text-sm text-red-300">{error}</p>}
+      <button className="btn btn-primary w-full" disabled={busy}>
+        {creating ? "Criar conta" : "Entrar"}
+      </button>
+      <button
+        type="button"
+        className="w-full cursor-pointer text-sm text-white/50 hover:text-white"
+        onClick={() => setCreating(!creating)}
+      >
+        {creating ? "Já tenho conta" : "Criar uma conta"}
+      </button>
+    </form>
+  );
+}
+
+/** Hosted instances: every sign-in goes through Better Auth. */
+function AccountLogin({ methods, onSignedIn }: { methods: Me["methods"]; onSignedIn: () => void }) {
+  const refused = new URLSearchParams(location.search).has("acesso");
+  const offered = PROVIDERS.filter((provider) => methods[provider.id]);
+
+  return (
     <Frame>
-      <h1 className="mb-1 text-xl font-bold">Entrar</h1>
-      {sentTo ? (
-        <form onSubmit={verify} className="space-y-4">
-          <p className="text-sm text-white/60">
-            Enviamos um código para <strong className="text-white">{sentTo}</strong>. Digite-o abaixo.
-          </p>
-          <input
-            className="field text-center text-2xl tracking-[0.4em]"
-            name="code"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="\d{4,8}"
-            maxLength={8}
-            placeholder="000000"
-            aria-label="Código"
-            required
-            autoFocus
-          />
-          {error && <p className="text-sm text-red-300">{error}</p>}
-          <button className="btn btn-primary w-full" disabled={busy}>
-            {busy ? "Conferindo..." : "Entrar"}
-          </button>
-          <button
-            type="button"
-            className="w-full cursor-pointer text-sm text-white/50 hover:text-white"
-            onClick={() => setSentTo(null)}
-          >
-            Usar outro e-mail ou pedir novo código
-          </button>
-        </form>
-      ) : (
-        <form onSubmit={requestCode} className="space-y-4">
-          <p className="text-sm text-white/60">Você recebe um código por e-mail, sem senha.</p>
-          <input
-            className="field"
-            type="email"
-            autoComplete="email"
-            placeholder="voce@exemplo.com"
-            aria-label="E-mail"
-            required
-            autoFocus
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-          {error && <p className="text-sm text-red-300">{error}</p>}
-          <button className="btn btn-primary w-full" disabled={busy}>
-            {busy ? "Enviando..." : "Receber código"}
-          </button>
-        </form>
+      <h1 className="mb-4 text-xl font-bold">Entrar</h1>
+      {refused && (
+        <p className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm">
+          Esta conta ainda não tem acesso ao SingWithMe.
+        </p>
       )}
+      <div className="space-y-3">
+        {offered.map((provider) => (
+          <button
+            key={provider.id}
+            className="btn btn-primary w-full"
+            onClick={() =>
+              authClient.signIn.social({ provider: provider.id, callbackURL: "/", errorCallbackURL: REFUSED })
+            }
+          >
+            {provider.label}
+          </button>
+        ))}
+        {methods.password && <PasswordForm onSignedIn={onSignedIn} />}
+        {!offered.length && !methods.password && (
+          <p className="text-sm text-white/60">Nenhuma forma de login foi configurada nesta instância.</p>
+        )}
+      </div>
     </Frame>
   );
 }
@@ -144,8 +152,8 @@ function LocalLogin({ pinRequired, onSignedIn }: { pinRequired: boolean; onSigne
 }
 
 export function Login({ me, onSignedIn }: { me: Me; onSignedIn: () => void }) {
-  return me.auth === "email" ? (
-    <EmailLogin onSignedIn={onSignedIn} />
+  return me.auth === "accounts" ? (
+    <AccountLogin methods={me.methods} onSignedIn={onSignedIn} />
   ) : (
     <LocalLogin pinRequired={me.pinRequired} onSignedIn={onSignedIn} />
   );

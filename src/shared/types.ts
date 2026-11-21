@@ -158,8 +158,10 @@ export interface Performance {
 export interface Me {
   /** Null when nobody is signed in. */
   user: { email: string } | null;
-  /** email: sign in with a code sent by e-mail. local: whoever sits at the karaoke machine (or knows the PIN). */
-  auth: "email" | "local";
+  /** accounts: hosted, sign in through Better Auth. local: whoever sits at the karaoke machine (or knows the PIN). */
+  auth: "accounts" | "local";
+  /** Sign-in methods switched on for this instance (accounts mode). */
+  methods: { github: boolean; google: boolean; password: boolean };
   pinRequired: boolean;
   /** Fixed library: importing and deleting songs is disabled. */
   demo: boolean;
