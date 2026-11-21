@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0b0714;
+  --color-panel: #171026;
+  --color-edge: #2c2145;
+  --color-accent: #ff3d9a;
+  --color-glow: #7c5cff;
+  --color-hit: #3ddc97;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  @apply bg-ink text-white antialiased;
+  background-image:
+    radial-gradient(60rem 30rem at 10% -10%, rgb(124 92 255 / 0.22), transparent),
+    radial-gradient(50rem 30rem at 100% 0%, rgb(255 61 154 / 0.16), transparent);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-edge bg-panel px-4 py-2 text-sm font-semibold transition hover:border-glow disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-primary {
+    @apply border-transparent bg-linear-to-r from-accent to-glow text-white hover:brightness-110;
+  }
+  .field {
+    @apply w-full rounded-xl border border-edge bg-ink/60 px-3 py-2 text-sm outline-none placeholder:text-white/30 focus:border-glow;
+  }
+  .card {
+    @apply rounded-2xl border border-edge bg-panel/80 backdrop-blur;
+  }
+  .chip {
+    @apply rounded-full border border-edge px-2 py-0.5 text-xs text-white/60;
+  }
+}
+
+/* Karaoke wipe: the sung part of a word is painted with the accent colour. */
+.wipe {
+  background-image: linear-gradient(90deg, var(--color-accent) var(--sung, 0%), currentColor var(--sung, 0%));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
