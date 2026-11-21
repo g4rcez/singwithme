@@ -1,10 +1,27 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import type { Difficulty } from "../shared/types";
+import type { Difficulty, PartyState } from "../shared/types";
 import app from "../web/index.html";
 import { addScore, deleteSong, getSong, globalRanking, listSongs, songRanking, updateSong } from "./db";
 import { importFromFile, importFromYoutube, type CommonOptions } from "./importer/pipeline";
 import { getJob, listJobs, startJob } from "./jobs";
+import {
+  createDuo,
+  currentInvite,
+  dequeue,
+  enqueue,
+  findQueueItem,
+  isInviteValid,
+  join as joinParty,
+  listDuos,
+  listQueue,
+  moveInQueue,
+  ownsDuo,
+  PartyError,
+  publicOrigin,
+  removeDuo,
+  startSinging,
+} from "./party";
 import { songDir } from "./paths";
 import { toolStatuses } from "./tools";
 
@@ -13,6 +30,40 @@ const DIFFICULTIES: Difficulty[] = ["easy", "normal", "hard"];
 
 const json = (data: unknown, status = 200) => Response.json(data, { status });
 const fail = (message: string, status = 400) => json({ error: message }, status);
+
+/** Filled in once the server is listening; the route handlers below need it before `server` exists. */
+const network = { addressOf: (_request: Request): string => "", port: 0 };
+
+const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+
+/**
+ * The host is whoever sits at the machine running the karaoke. Phones on the network may browse songs and
+ * manage their own place in the queue, nothing else. A forwarded request came through a proxy or tunnel,
+ * so its loopback address says nothing about who sent it.
+ */
+function isHost(request: Request): boolean {
+  if (request.headers.has("x-forwarded-for")) return false;
+  return LOOPBACK.has(network.addressOf(request));
+}
+
+const hostOnly = (request: Request) =>
+  isHost(request) ? null : fail("Só o computador do karaokê pode fazer isso.", 403);
+
+/** Runs a party action, turning its validation errors into HTTP responses. */
+async function party(action: () => unknown): Promise<Response> {
+  try {
+    return json((await action()) ?? { ok: true });
+  } catch (error) {
+    if (error instanceof PartyError) return fail(error.message, error.status);
+    throw error;
+  }
+}
+
+const partyState = (request: Request): PartyState => ({
+  isHost: isHost(request),
+  duos: listDuos(),
+  queue: listQueue(),
+});
 
 /** Serves a media file with HTTP Range support, which <video>/<audio> need in order to seek. */
 async function serveMedia(request: Request, id: string, name: string): Promise<Response> {
@@ -64,8 +115,8 @@ async function commonOptions(form: FormData): Promise<CommonOptions> {
 
 const server = Bun.serve({
   port: Number(process.env.PORT ?? 3210),
-  // Local by default: the microphone only works on a secure context, and localhost is one.
-  hostname: process.env.HOST ?? "127.0.0.1",
+  // Reachable from the local network so phones can register and queue songs.
+  hostname: process.env.HOST ?? "0.0.0.0",
   maxRequestBodySize: 2 * 1024 ** 3,
   development: process.env.NODE_ENV !== "production",
   routes: {
@@ -86,6 +137,8 @@ const server = Bun.serve({
         return song ? json(song) : fail("Música não encontrada", 404);
       },
       PATCH: async (request) => {
+        const denied = hostOnly(request);
+        if (denied) return denied;
         const body = (await request.json()) as { title?: unknown; artist?: unknown; lyricsOffset?: unknown };
         if (!getSong(request.params.id)) return fail("Música não encontrada", 404);
         updateSong(request.params.id, {
@@ -97,6 +150,8 @@ const server = Bun.serve({
         return json(getSong(request.params.id));
       },
       DELETE: async (request) => {
+        const denied = hostOnly(request);
+        if (denied) return denied;
         const { id } = request.params;
         if (!SAFE_NAME.test(id)) return fail("Identificador inválido");
         deleteSong(id);
@@ -107,6 +162,8 @@ const server = Bun.serve({
     "/api/songs/:id/scores": {
       GET: (request) => json(songRanking(request.params.id)),
       POST: async (request) => {
+        const denied = hostOnly(request);
+        if (denied) return denied;
         const body = (await request.json()) as Record<string, unknown>;
         const player = typeof body.player === "string" ? body.player.trim().slice(0, 24) : "";
         const score = Number(body.score);
@@ -124,6 +181,8 @@ const server = Bun.serve({
 
     "/api/import/youtube": {
       POST: async (request) => {
+        const denied = hostOnly(request);
+        if (denied) return denied;
         const form = await request.formData();
         const url = text(form, "url");
         if (!url || !/^https?:\/\//i.test(url)) return fail("Informe o link do vídeo.");
@@ -133,6 +192,8 @@ const server = Bun.serve({
     },
     "/api/import/file": {
       POST: async (request) => {
+        const denied = hostOnly(request);
+        if (denied) return denied;
         const form = await request.formData();
         const media = form.get("media");
         if (!(media instanceof File) || media.size === 0) return fail("Envie o arquivo de áudio ou vídeo.");
@@ -141,9 +202,66 @@ const server = Bun.serve({
       },
     },
 
+    "/api/party": (request) => json(partyState(request)),
+    "/api/party/invite": (request) => hostOnly(request) ?? json(currentInvite(publicOrigin(network.port))),
+    "/api/party/invite/:token": (request) => json({ valid: isInviteValid(request.params.token) }),
+    "/api/party/join": {
+      POST: (request) =>
+        party(async () => {
+          const body = (await request.json()) as { token?: unknown; members?: unknown };
+          return joinParty(body.token, body.members);
+        }),
+    },
+    "/api/party/duos": {
+      POST: (request) =>
+        hostOnly(request) ??
+        party(async () => createDuo(((await request.json()) as { members?: unknown }).members).duo),
+    },
+    "/api/party/duos/:id": {
+      DELETE: (request) => hostOnly(request) ?? party(() => removeDuo(request.params.id)),
+    },
+    "/api/party/queue": {
+      POST: (request) =>
+        party(async () => {
+          const body = (await request.json()) as { songId?: unknown; duoId?: unknown };
+          const duoId = String(body.duoId ?? "");
+          if (!isHost(request) && !ownsDuo(duoId, request.headers.get("x-duo-secret"))) {
+            throw new PartyError("Você só pode colocar a sua própria dupla na fila.", 403);
+          }
+          const song = getSong(String(body.songId ?? ""));
+          if (!song) throw new PartyError("Música não encontrada.", 404);
+          return enqueue(song, duoId);
+        }),
+    },
+    "/api/party/queue/:id": {
+      DELETE: (request) =>
+        party(() => {
+          const item = findQueueItem(request.params.id);
+          if (item && !isHost(request) && !ownsDuo(item.duoId, request.headers.get("x-duo-secret"))) {
+            throw new PartyError("Você só pode tirar a sua própria dupla da fila.", 403);
+          }
+          dequeue(request.params.id);
+        }),
+    },
+    "/api/party/queue/:id/start": {
+      POST: (request) => hostOnly(request) ?? party(() => startSinging(request.params.id)),
+    },
+    "/api/party/queue/:id/move": {
+      POST: (request) =>
+        hostOnly(request) ??
+        party(async () => {
+          const { direction } = (await request.json()) as { direction?: unknown };
+          moveInQueue(request.params.id, direction === "up" ? -1 : 1);
+        }),
+    },
+
     "/media/:id/:file": (request) => serveMedia(request, request.params.id, request.params.file),
   },
   fetch: () => fail("Não encontrado", 404),
 });
 
-console.log(`SingWithMe rodando em ${server.url}`);
+network.addressOf = (request) => server.requestIP(request)?.address ?? "";
+network.port = server.port ?? 3210;
+
+console.log(`SingWithMe rodando em http://localhost:${network.port}`);
+console.log(`Celulares na mesma rede: ${publicOrigin(network.port)}`);

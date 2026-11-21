@@ -9,7 +9,7 @@ uma música (YouTube e busca de letra).
 ```bash
 bun install
 bun run doctor   # mostra quais ferramentas externas estão instaladas
-bun start        # http://127.0.0.1:3210
+bun start        # http://localhost:3210
 ```
 
 Abra por `localhost`: o navegador só libera o microfone em contexto seguro. Use fones de ouvido para o
@@ -22,8 +22,23 @@ microfone captar só a sua voz.
 | `whisper-ctranslate2` ou `whisper` | transcrever a letra offline (~100 idiomas) | não |
 | `demucs` | separar a voz: playback instrumental e melodia mais precisa | não |
 
-Variáveis: `PORT`, `HOST`, `SINGWITHME_DATA` (pasta de dados), `SINGWITHME_WHISPER_MODEL` (padrão `small`;
+Variáveis: `PORT`, `HOST`, `PUBLIC_URL`, `SINGWITHME_DATA` (pasta de dados), `SINGWITHME_WHISPER_MODEL` (padrão `small`;
 `medium`/`large-v3` erram menos em idiomas não europeus), `SINGWITHME_LRCLIB_URL` (instância própria do LRCLIB).
+
+## Festa: duplas, fila e cadastro por QR code
+
+Na aba **Fila e duplas** o computador do karaokê mostra um QR code. Cada dupla aponta a câmera do celular,
+informa os dois nomes e passa a escolher músicas e acompanhar a fila pelo próprio telefone.
+
+- **Cada QR code vale um cadastro**: assim que uma dupla se registra, o código é trocado por outro.
+- As duplas também podem ser criadas direto no computador, que reordena a fila e chama a próxima dupla.
+- Ao cantar a partir da fila, o placar é salvo no nome da dupla e ela sai da fila ao terminar.
+- Duplas e fila ficam **só na memória**: fechar o karaokê encerra a festa. Músicas e ranking continuam em disco.
+
+O celular precisa estar no mesmo Wi-Fi. O servidor escuta em toda a rede local (`HOST=127.0.0.1` desliga
+isso), mas só quem está no próprio computador importa ou apaga músicas, grava placares e controla a fila;
+pelo celular a dupla só mexe na própria vez. Se o endereço do QR code sair errado (várias placas de rede,
+túnel), defina `PUBLIC_URL=http://endereço:porta`.
 
 ## Adicionando músicas
 

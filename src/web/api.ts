@@ -1,4 +1,17 @@
-import type { Difficulty, Job, RankedScore, ScoreEntry, Song, SongSummary, ToolStatus } from "../shared/types";
+import type {
+  Difficulty,
+  Duo,
+  DuoSession,
+  Invite,
+  Job,
+  PartyState,
+  QueueItem,
+  RankedScore,
+  ScoreEntry,
+  Song,
+  SongSummary,
+  ToolStatus,
+} from "../shared/types";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init);
@@ -7,11 +20,14 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
-const jsonBody = (method: string, data: unknown): RequestInit => ({
+const jsonBody = (method: string, data: unknown, headers: Record<string, string> = {}): RequestInit => ({
   method,
-  headers: { "Content-Type": "application/json" },
+  headers: { "Content-Type": "application/json", ...headers },
   body: JSON.stringify(data),
 });
+
+/** Phones prove which duo they are with the secret they received when registering. */
+const asDuo = (secret?: string): Record<string, string> => (secret ? { "X-Duo-Secret": secret } : {});
 
 export const api = {
   songs: (search = "") => call<SongSummary[]>(`/api/songs?q=${encodeURIComponent(search)}`),
@@ -27,4 +43,19 @@ export const api = {
   job: (id: string) => call<Job>(`/api/jobs/${id}`),
   importYoutube: (form: FormData) => call<Job>("/api/import/youtube", { method: "POST", body: form }),
   importFile: (form: FormData) => call<Job>("/api/import/file", { method: "POST", body: form }),
+
+  party: () => call<PartyState>("/api/party"),
+  invite: () => call<Invite>("/api/party/invite"),
+  inviteValid: (token: string) => call<{ valid: boolean }>(`/api/party/invite/${encodeURIComponent(token)}`),
+  join: (token: string, members: [string, string]) =>
+    call<DuoSession>("/api/party/join", jsonBody("POST", { token, members })),
+  createDuo: (members: [string, string]) => call<Duo>("/api/party/duos", jsonBody("POST", { members })),
+  removeDuo: (id: string) => call<{ ok: true }>(`/api/party/duos/${id}`, { method: "DELETE" }),
+  enqueue: (songId: string, duoId: string, secret?: string) =>
+    call<QueueItem>("/api/party/queue", jsonBody("POST", { songId, duoId }, asDuo(secret))),
+  dequeue: (id: string, secret?: string) =>
+    call<{ ok: true }>(`/api/party/queue/${id}`, { method: "DELETE", headers: asDuo(secret) }),
+  startItem: (id: string) => call<QueueItem>(`/api/party/queue/${id}/start`, { method: "POST" }),
+  moveItem: (id: string, direction: "up" | "down") =>
+    call<{ ok: true }>(`/api/party/queue/${id}/move`, jsonBody("POST", { direction })),
 };

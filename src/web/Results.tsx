@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { ScoreResult } from "../shared/scoring";
-import type { Difficulty, ScoreEntry, Song } from "../shared/types";
+import type { Difficulty, QueueItem, ScoreEntry, Song } from "../shared/types";
 import { api } from "./api";
 import { DIFFICULTY_LABEL, MODE_HELP, points } from "./format";
 import { ScoreTable } from "./Ranking";
@@ -11,18 +11,31 @@ interface Props {
   song: Song;
   result: ScoreResult;
   difficulty: Difficulty;
+  /** Duo that sang, when the song came from the queue. */
+  singer: string | null;
   onAgain: () => void;
 }
 
-export function Results({ song, result, difficulty, onAgain }: Props) {
+export function Results({ song, result, difficulty, singer, onAgain }: Props) {
   const [ranking, setRanking] = useState<ScoreEntry[]>([]);
   const [saved, setSaved] = useState<ScoreEntry | null>(null);
-  const [player, setPlayer] = useState(() => localStorage.getItem(NAME_KEY) ?? "");
+  const [player, setPlayer] = useState(() => singer ?? localStorage.getItem(NAME_KEY) ?? "");
+  const [upNext, setUpNext] = useState<QueueItem | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api.scores(song.id).then(setRanking, () => undefined);
   }, [song.id]);
+
+  useEffect(() => {
+    // Whoever just sang may still be listed for a moment, so skip the item marked as on stage.
+    api.party().then((party) => setUpNext(party.queue.find((item) => !item.singing) ?? null), () => undefined);
+  }, []);
+
+  const singNext = async (item: QueueItem) => {
+    await api.startItem(item.id).catch(() => undefined);
+    location.hash = `#/sing/${encodeURIComponent(item.songId)}?item=${item.id}`;
+  };
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
@@ -33,7 +46,7 @@ export function Results({ song, result, difficulty, onAgain }: Props) {
         accuracy: result.accuracy,
         difficulty,
       });
-      localStorage.setItem(NAME_KEY, player.trim());
+      if (!singer) localStorage.setItem(NAME_KEY, player.trim());
       setSaved(response.entry);
       setRanking(response.ranking);
     } catch (cause) {
@@ -79,10 +92,20 @@ export function Results({ song, result, difficulty, onAgain }: Props) {
         )}
         {error && <p className="mt-2 text-sm text-red-300">{error}</p>}
 
-        <div className="mt-6 flex justify-center gap-2">
-          <button className="btn" onClick={onAgain}>
-            Cantar de novo
-          </button>
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          {upNext && (
+            <button className="btn btn-primary w-full" onClick={() => singNext(upNext)}>
+              Próxima: {upNext.duoName} · {upNext.songTitle}
+            </button>
+          )}
+          {!singer && (
+            <button className="btn" onClick={onAgain}>
+              Cantar de novo
+            </button>
+          )}
+          <a className="btn" href="#/party">
+            Ver a fila
+          </a>
           <a className="btn" href="#/">
             Voltar às músicas
           </a>

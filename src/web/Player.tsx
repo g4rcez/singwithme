@@ -22,7 +22,13 @@ const storedDifficulty = (): Difficulty => {
   return value === "easy" || value === "hard" ? value : "normal";
 };
 
-export function Player({ songId }: { songId: string }) {
+interface Props {
+  songId: string;
+  /** Set when the song was started from the queue: the duo on stage owns this performance. */
+  queueItemId?: string | null;
+}
+
+export function Player({ songId, queueItemId = null }: Props) {
   const [song, setSong] = useState<Song | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("ready");
@@ -33,6 +39,7 @@ export function Player({ songId }: { songId: string }) {
   const [time, setTime] = useState(0);
   const [score, setScore] = useState(0);
   const [result, setResult] = useState<ScoreResult | null>(null);
+  const [singer, setSinger] = useState<string | null>(null);
 
   const mic = useMic();
   const video = useRef<HTMLVideoElement>(null);
@@ -48,6 +55,14 @@ export function Player({ songId }: { songId: string }) {
       (cause: Error) => setError(cause.message),
     );
   }, [songId]);
+
+  useEffect(() => {
+    if (!queueItemId) return;
+    api.party().then(
+      (party) => setSinger(party.queue.find((item) => item.id === queueItemId)?.duoName ?? null),
+      () => undefined,
+    );
+  }, [queueItemId]);
 
   // The lyrics offset moves the chart (lines and notes); the melody comes from the audio itself and stays put.
   const lines = useMemo(() => (song ? shiftLines(song.lines, offset) : []), [song, offset]);
@@ -70,7 +85,9 @@ export function Player({ songId }: { songId: string }) {
     mic.stop();
     if (tracker) setResult(tracker.result());
     setPhase("results");
-  }, [mic, tracker]);
+    // The performance is over, so the duo leaves the queue.
+    if (queueItemId) void api.dequeue(queueItemId).catch(() => undefined);
+  }, [mic, tracker, queueItemId]);
 
   const start = async () => {
     const clockSource = master();
@@ -166,6 +183,7 @@ export function Player({ songId }: { songId: string }) {
         song={song}
         result={result}
         difficulty={difficulty}
+        singer={singer}
         onAgain={() => {
           setResult(null);
           setScore(0);
@@ -191,6 +209,11 @@ export function Player({ songId }: { songId: string }) {
         <div className="absolute inset-0 grid place-items-center overflow-y-auto bg-ink/80 p-5">
           <div className="card w-full max-w-lg space-y-5 p-8">
             <div>
+              {singer && (
+                <p className="mb-1 text-sm font-bold tracking-wide text-accent uppercase" data-testid="on-stage">
+                  No palco: {singer}
+                </p>
+              )}
               <h1 className="text-3xl font-black">{song.title}</h1>
               <p className="text-white/60">
                 {song.artist} · {clock(song.duration)}
@@ -239,7 +262,7 @@ export function Player({ songId }: { songId: string }) {
             )}
 
             <div className="flex gap-2">
-              <a className="btn" href="#/">
+              <a className="btn" href={queueItemId ? "#/party" : "#/"}>
                 Voltar
               </a>
               <button className="btn btn-primary flex-1 text-base" onClick={start} disabled={mic.status === "starting"}>
@@ -256,7 +279,7 @@ export function Player({ songId }: { songId: string }) {
           <header className="flex items-center gap-3 p-4 text-sm">
             <div className="min-w-0">
               <p className="truncate font-bold">{song.title}</p>
-              <p className="truncate text-xs text-white/60">{song.artist}</p>
+              <p className="truncate text-xs text-white/60">{singer ? `${singer} · ${song.artist}` : song.artist}</p>
             </div>
             <div className="ml-auto flex items-center gap-2">
               <span className="chip" title="Microfone">

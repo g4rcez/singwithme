@@ -96,3 +96,38 @@ export interface ToolStatus {
   required: boolean;
   install: string;
 }
+
+/** Two people who sing together. Lives only in server memory: a party ends when the server stops. */
+export interface Duo {
+  id: string;
+  name: string;
+  members: [string, string];
+}
+
+export interface QueueItem {
+  id: string;
+  songId: string;
+  songTitle: string;
+  songArtist: string;
+  duoId: string;
+  duoName: string;
+  singing: boolean;
+}
+
+export interface PartyState {
+  /** True for the machine running the karaoke (it controls the queue and shows the QR codes). */
+  isHost: boolean;
+  duos: Duo[];
+  queue: QueueItem[];
+}
+
+export interface Invite {
+  token: string;
+  url: string;
+}
+
+/** What a phone keeps after registering: the duo plus the secret that proves it owns it. */
+export interface DuoSession {
+  duo: Duo;
+  secret: string;
+}
