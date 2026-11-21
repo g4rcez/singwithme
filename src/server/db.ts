@@ -1,53 +1,64 @@
-import { Database } from "bun:sqlite";
+import { SQL } from "bun";
 import { scoringModeOf } from "../shared/scoring";
-import type {
-  Difficulty,
-  Line,
-  LyricsSource,
-  Melody,
-  Note,
-  RankedScore,
-  ScoreEntry,
-  Song,
-  SongSource,
-  SongSummary,
-} from "../shared/types";
+import type { Line, LyricsSource, Melody, Note, Song, SongSource, SongSummary } from "../shared/types";
 import { DB_FILE } from "./paths";
 
-const db = new Database(DB_FILE, { create: true });
-db.exec(`
-  PRAGMA journal_mode = WAL;
-  PRAGMA foreign_keys = ON;
-  CREATE TABLE IF NOT EXISTS songs (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    artist TEXT NOT NULL,
-    language TEXT,
-    duration REAL NOT NULL,
-    source TEXT NOT NULL,
-    lyrics_source TEXT NOT NULL,
-    scoring_mode TEXT NOT NULL,
-    media_file TEXT NOT NULL,
-    instrumental_file TEXT,
-    has_video INTEGER NOT NULL DEFAULT 0,
-    lyrics_offset REAL NOT NULL DEFAULT 0,
-    chart TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS scores (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    song_id TEXT NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
-    player TEXT NOT NULL,
-    score INTEGER NOT NULL,
-    accuracy REAL NOT NULL,
-    difficulty TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-  );
-  CREATE INDEX IF NOT EXISTS scores_by_song ON scores(song_id, score DESC);
-`);
+/**
+ * One SQL client for both deployments: Postgres when DATABASE_URL is set (the hosted service),
+ * a local SQLite file otherwise (offline use). The schema and queries stick to what both understand:
+ * text ids, integers for flags, doubles for timestamps, no dialect-specific functions.
+ */
+export const sql = process.env.DATABASE_URL
+  ? new SQL(process.env.DATABASE_URL)
+  : new SQL({ adapter: "sqlite", filename: DB_FILE });
+
+const SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS groups (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at DOUBLE PRECISION NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS group_members (
+    group_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, PRIMARY KEY (group_id, email))`,
+  `CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY, group_id TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL,
+    invite_token TEXT, created_at DOUBLE PRECISION NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS songs (
+    id TEXT PRIMARY KEY, group_id TEXT, title TEXT NOT NULL, artist TEXT NOT NULL, language TEXT,
+    duration DOUBLE PRECISION NOT NULL, source TEXT NOT NULL, lyrics_source TEXT NOT NULL,
+    scoring_mode TEXT NOT NULL, media_file TEXT NOT NULL, instrumental_file TEXT,
+    has_video INTEGER NOT NULL DEFAULT 0, lyrics_offset DOUBLE PRECISION NOT NULL DEFAULT 0,
+    chart TEXT NOT NULL, created_at DOUBLE PRECISION NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS duos (
+    id TEXT PRIMARY KEY, event_id TEXT NOT NULL, name TEXT NOT NULL, member_a TEXT NOT NULL,
+    member_b TEXT NOT NULL, secret TEXT NOT NULL, created_at DOUBLE PRECISION NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS queue_items (
+    id TEXT PRIMARY KEY, event_id TEXT NOT NULL, song_id TEXT NOT NULL, duo_id TEXT NOT NULL,
+    position DOUBLE PRECISION NOT NULL, singing INTEGER NOT NULL DEFAULT 0)`,
+  `CREATE TABLE IF NOT EXISTS performances (
+    id TEXT PRIMARY KEY, event_id TEXT NOT NULL, group_id TEXT NOT NULL, song_id TEXT NOT NULL,
+    song_title TEXT NOT NULL, song_artist TEXT NOT NULL, singer TEXT NOT NULL, score INTEGER NOT NULL,
+    accuracy DOUBLE PRECISION NOT NULL, difficulty TEXT NOT NULL, created_at DOUBLE PRECISION NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS events_by_group ON events (group_id)`,
+  `CREATE INDEX IF NOT EXISTS events_by_invite ON events (invite_token)`,
+  `CREATE INDEX IF NOT EXISTS duos_by_event ON duos (event_id)`,
+  `CREATE INDEX IF NOT EXISTS queue_by_event ON queue_items (event_id, position)`,
+  `CREATE INDEX IF NOT EXISTS performances_by_group ON performances (group_id, song_id, score)`,
+  `CREATE INDEX IF NOT EXISTS performances_by_event ON performances (event_id, created_at)`,
+];
+
+let ready: Promise<void> | null = null;
+
+/** Creates the tables on first use. Every request awaits it, so a cold start never races the schema. */
+export function migrate(): Promise<void> {
+  ready ??= (async () => {
+    for (const statement of SCHEMA) await sql.unsafe(statement);
+  })();
+  return ready;
+}
+
+export const newId = () => crypto.randomUUID().replaceAll("-", "");
 
 interface SongRow {
   id: string;
+  group_id: string | null;
   title: string;
   artist: string;
   language: string | null;
@@ -59,10 +70,10 @@ interface SongRow {
   instrumental_file: string | null;
   has_video: number;
   lyrics_offset: number;
-  chart: string;
+  chart?: string;
   created_at: number;
-  best_score: number | null;
-  best_player: string | null;
+  best_score?: number | null;
+  best_player?: string | null;
 }
 
 interface Chart {
@@ -71,14 +82,9 @@ interface Chart {
   melody: Melody | null;
 }
 
-const SUMMARY_COLUMNS = `
-  s.id, s.title, s.artist, s.language, s.duration, s.source, s.lyrics_source, s.scoring_mode,
-  s.media_file, s.instrumental_file, s.has_video, s.lyrics_offset, s.created_at,
-  (SELECT score FROM scores WHERE song_id = s.id ORDER BY score DESC, created_at ASC LIMIT 1) AS best_score,
-  (SELECT player FROM scores WHERE song_id = s.id ORDER BY score DESC, created_at ASC LIMIT 1) AS best_player`;
-
 const toSummary = (row: SongRow): SongSummary => ({
   id: row.id,
+  groupId: row.group_id,
   title: row.title,
   artist: row.artist,
   language: row.language,
@@ -89,12 +95,14 @@ const toSummary = (row: SongRow): SongSummary => ({
   hasInstrumental: row.instrumental_file !== null,
   scoringMode: row.scoring_mode,
   createdAt: row.created_at,
-  bestScore: row.best_score,
-  bestPlayer: row.best_player,
+  bestScore: row.best_score ?? null,
+  bestPlayer: row.best_player ?? null,
 });
 
 export interface NewSong {
   id: string;
+  /** Owning group, or null for a song every group can sing (the bundled demo songs). */
+  groupId: string | null;
   title: string;
   artist: string;
   language: string | null;
@@ -109,48 +117,50 @@ export interface NewSong {
   melody: Melody | null;
 }
 
-export function saveSong(song: NewSong): void {
+export async function saveSong(song: NewSong): Promise<void> {
   const chart: Chart = { lines: song.lines, notes: song.notes, melody: song.melody };
-  db.query(
-    `INSERT INTO songs (id, title, artist, language, duration, source, lyrics_source, scoring_mode, media_file,
-       instrumental_file, has_video, chart, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET title = excluded.title, artist = excluded.artist, language = excluded.language,
-       duration = excluded.duration, source = excluded.source, lyrics_source = excluded.lyrics_source,
-       scoring_mode = excluded.scoring_mode, media_file = excluded.media_file,
-       instrumental_file = excluded.instrumental_file, has_video = excluded.has_video, chart = excluded.chart`,
-  ).run(
-    song.id,
-    song.title,
-    song.artist,
-    song.language,
-    song.duration,
-    song.source,
-    song.lyricsSource,
-    scoringModeOf(song),
-    song.mediaFile,
-    song.instrumentalFile,
-    song.hasVideo ? 1 : 0,
-    JSON.stringify(chart),
-    Date.now(),
-  );
+  const row = {
+    id: song.id,
+    group_id: song.groupId,
+    title: song.title,
+    artist: song.artist,
+    language: song.language,
+    duration: song.duration,
+    source: song.source,
+    lyrics_source: song.lyricsSource,
+    scoring_mode: scoringModeOf(song),
+    media_file: song.mediaFile,
+    instrumental_file: song.instrumentalFile,
+    has_video: song.hasVideo ? 1 : 0,
+    chart: JSON.stringify(chart),
+    created_at: Date.now(),
+  };
+  // Re-importing the same video replaces the song but keeps its history.
+  await sql`DELETE FROM songs WHERE id = ${song.id}`;
+  await sql`INSERT INTO songs ${sql(row)}`;
 }
 
-export function listSongs(search = ""): SongSummary[] {
-  const like = `%${search.trim()}%`;
-  return db
-    .query<SongRow, [string, string]>(
-      `SELECT ${SUMMARY_COLUMNS} FROM songs s WHERE s.title LIKE ? OR s.artist LIKE ?
-       ORDER BY s.artist COLLATE NOCASE, s.title COLLATE NOCASE`,
-    )
-    .all(like, like)
-    .map(toSummary);
+/** Songs a group can sing: its own plus the shared ones, each with the group's record. */
+export async function listSongs(groupId: string, search = ""): Promise<SongSummary[]> {
+  const like = `%${search.trim().toLowerCase()}%`;
+  const rows = await sql<SongRow[]>`
+    SELECT s.id, s.group_id, s.title, s.artist, s.language, s.duration, s.source, s.lyrics_source,
+      s.scoring_mode, s.media_file, s.instrumental_file, s.has_video, s.lyrics_offset, s.created_at,
+      (SELECT p.score FROM performances p WHERE p.song_id = s.id AND p.group_id = ${groupId}
+        ORDER BY p.score DESC, p.created_at ASC LIMIT 1) AS best_score,
+      (SELECT p.singer FROM performances p WHERE p.song_id = s.id AND p.group_id = ${groupId}
+        ORDER BY p.score DESC, p.created_at ASC LIMIT 1) AS best_player
+    FROM songs s
+    WHERE (s.group_id IS NULL OR s.group_id = ${groupId})
+      AND (lower(s.title) LIKE ${like} OR lower(s.artist) LIKE ${like})
+    ORDER BY lower(s.artist), lower(s.title)`;
+  return rows.map(toSummary);
 }
 
-export function getSong(id: string): Song | null {
-  const row = db.query<SongRow, [string]>(`SELECT ${SUMMARY_COLUMNS}, s.chart FROM songs s WHERE s.id = ?`).get(id);
+export async function getSong(id: string): Promise<Song | null> {
+  const [row] = await sql<SongRow[]>`SELECT * FROM songs WHERE id = ${id}`;
   if (!row) return null;
-  const chart = JSON.parse(row.chart) as Chart;
+  const chart = JSON.parse(row.chart ?? "{}") as Chart;
   return {
     ...toSummary(row),
     ...chart,
@@ -160,62 +170,16 @@ export function getSong(id: string): Song | null {
   };
 }
 
-export function updateSong(id: string, patch: { title?: string; artist?: string; lyricsOffset?: number }): void {
-  db.query(
-    `UPDATE songs SET title = coalesce(?, title), artist = coalesce(?, artist),
-       lyrics_offset = coalesce(?, lyrics_offset) WHERE id = ?`,
-  ).run(patch.title ?? null, patch.artist ?? null, patch.lyricsOffset ?? null, id);
+export async function updateSong(
+  id: string,
+  patch: { title?: string; artist?: string; lyricsOffset?: number },
+): Promise<void> {
+  await sql`UPDATE songs SET title = coalesce(${patch.title ?? null}, title),
+    artist = coalesce(${patch.artist ?? null}, artist),
+    lyrics_offset = coalesce(${patch.lyricsOffset ?? null}, lyrics_offset) WHERE id = ${id}`;
 }
 
-export function deleteSong(id: string): void {
-  db.query("DELETE FROM songs WHERE id = ?").run(id);
-}
-
-interface ScoreRow {
-  id: number;
-  song_id: string;
-  player: string;
-  score: number;
-  accuracy: number;
-  difficulty: Difficulty;
-  created_at: number;
-  title?: string;
-  artist?: string;
-}
-
-const toScore = (row: ScoreRow): ScoreEntry => ({
-  id: row.id,
-  songId: row.song_id,
-  player: row.player,
-  score: row.score,
-  accuracy: row.accuracy,
-  difficulty: row.difficulty,
-  createdAt: row.created_at,
-});
-
-export function addScore(entry: Omit<ScoreEntry, "id" | "createdAt">): ScoreEntry {
-  const createdAt = Date.now();
-  const { lastInsertRowid } = db
-    .query("INSERT INTO scores (song_id, player, score, accuracy, difficulty, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(entry.songId, entry.player, entry.score, entry.accuracy, entry.difficulty, createdAt);
-  return { ...entry, id: Number(lastInsertRowid), createdAt };
-}
-
-export function songRanking(songId: string, limit = 50): ScoreEntry[] {
-  return db
-    .query<ScoreRow, [string, number]>(
-      "SELECT * FROM scores WHERE song_id = ? ORDER BY score DESC, created_at ASC LIMIT ?",
-    )
-    .all(songId, limit)
-    .map(toScore);
-}
-
-export function globalRanking(limit = 100): RankedScore[] {
-  return db
-    .query<ScoreRow, [number]>(
-      `SELECT sc.*, s.title, s.artist FROM scores sc JOIN songs s ON s.id = sc.song_id
-       ORDER BY sc.score DESC, sc.created_at ASC LIMIT ?`,
-    )
-    .all(limit)
-    .map((row) => ({ ...toScore(row), songTitle: row.title ?? "", songArtist: row.artist ?? "" }));
+export async function deleteSong(id: string): Promise<void> {
+  await sql`DELETE FROM queue_items WHERE song_id = ${id}`;
+  await sql`DELETE FROM songs WHERE id = ${id}`;
 }

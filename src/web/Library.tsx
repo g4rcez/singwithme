@@ -4,7 +4,16 @@ import { api } from "./api";
 import { clock, LYRICS_LABEL, MODE_LABEL, points } from "./format";
 import { ImportDialog } from "./ImportDialog";
 
-export function Library({ demo }: { demo: boolean }) {
+interface Props {
+  eventId: string;
+  groupId: string;
+  /** Fixed library: no importing or deleting. */
+  demo: boolean;
+  /** Closed events keep their history but nobody sings in them any more. */
+  open: boolean;
+}
+
+export function Library({ eventId, groupId, demo, open }: Props) {
   const [songs, setSongs] = useState<SongSummary[] | null>(null);
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
@@ -12,10 +21,10 @@ export function Library({ demo }: { demo: boolean }) {
 
   const load = useCallback(() => {
     api
-      .songs(search)
+      .songs(eventId, search)
       .then(setSongs)
       .catch((cause: Error) => setError(cause.message));
-  }, [search]);
+  }, [eventId, search]);
 
   useEffect(() => {
     const timer = setTimeout(load, 150);
@@ -24,7 +33,7 @@ export function Library({ demo }: { demo: boolean }) {
 
   const remove = async (song: SongSummary) => {
     if (!confirm(`Apagar "${song.title}" e o ranking dela?`)) return;
-    await api.deleteSong(song.id).catch((cause: Error) => setError(cause.message));
+    await api.deleteSong(eventId, song.id).catch((cause: Error) => setError(cause.message));
     load();
   };
 
@@ -73,7 +82,7 @@ export function Library({ demo }: { demo: boolean }) {
                 </h2>
                 <p className="truncate text-sm text-white/60">{song.artist}</p>
               </div>
-              {!demo && (
+              {!demo && song.groupId !== null && (
                 <button
                   className="cursor-pointer text-white/30 opacity-0 transition group-hover:opacity-100 hover:text-red-400 focus:opacity-100"
                   title="Apagar música"
@@ -100,9 +109,11 @@ export function Library({ demo }: { demo: boolean }) {
                   </>
                 )}
               </p>
-              <a className="btn btn-primary" href={`#/sing/${encodeURIComponent(song.id)}`}>
-                Cantar
-              </a>
+              {open && (
+                <a className="btn btn-primary" href={`#/e/${eventId}/sing/${encodeURIComponent(song.id)}`}>
+                  Cantar
+                </a>
+              )}
             </div>
           </li>
         ))}
@@ -110,6 +121,8 @@ export function Library({ demo }: { demo: boolean }) {
 
       {importing && (
         <ImportDialog
+          eventId={eventId}
+          groupId={groupId}
           onClose={() => {
             setImporting(false);
             load();

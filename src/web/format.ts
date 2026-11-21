@@ -5,6 +5,9 @@ export function clock(seconds: number): string {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
+const DATE = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+export const when = (timestamp: number) => DATE.format(timestamp);
+
 export const points = (score: number) => score.toLocaleString("pt-BR");
 
 export const DIFFICULTY_LABEL: Record<Difficulty, string> = { easy: "Fácil", normal: "Normal", hard: "Difícil" };

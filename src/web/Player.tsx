@@ -23,12 +23,13 @@ const storedDifficulty = (): Difficulty => {
 };
 
 interface Props {
+  eventId: string;
   songId: string;
   /** Set when the song was started from the queue: the duo on stage owns this performance. */
   queueItemId?: string | null;
 }
 
-export function Player({ songId, queueItemId = null }: Props) {
+export function Player({ eventId, songId, queueItemId = null }: Props) {
   const [song, setSong] = useState<Song | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("ready");
@@ -47,22 +48,22 @@ export function Player({ songId, queueItemId = null }: Props) {
   const trail = useRef<TrailPoint[]>([]);
 
   useEffect(() => {
-    api.song(songId).then(
+    api.song(eventId, songId).then(
       (loaded) => {
         setSong(loaded);
         setOffset(loaded.lyricsOffset);
       },
       (cause: Error) => setError(cause.message),
     );
-  }, [songId]);
+  }, [eventId, songId]);
 
   useEffect(() => {
     if (!queueItemId) return;
-    api.party().then(
-      (party) => setSinger(party.queue.find((item) => item.id === queueItemId)?.duoName ?? null),
+    api.event(eventId).then(
+      (state) => setSinger(state.queue.find((item) => item.id === queueItemId)?.duoName ?? null),
       () => undefined,
     );
-  }, [queueItemId]);
+  }, [eventId, queueItemId]);
 
   // The lyrics offset moves the chart (lines and notes); the melody comes from the audio itself and stays put.
   const lines = useMemo(() => (song ? shiftLines(song.lines, offset) : []), [song, offset]);
@@ -155,7 +156,7 @@ export function Player({ songId, queueItemId = null }: Props) {
   const nudgeOffset = (delta: number) => {
     const value = Math.round((offset + delta) * 100) / 100;
     setOffset(value);
-    void api.updateSong(songId, { lyricsOffset: value }).catch(() => undefined);
+    void api.updateSong(eventId, songId, { lyricsOffset: value }).catch(() => undefined);
   };
 
   const pickDifficulty = (value: Difficulty) => {
@@ -168,7 +169,7 @@ export function Player({ songId, queueItemId = null }: Props) {
       <div className="grid h-screen place-items-center text-center">
         <div>
           <p className="mb-4">{error}</p>
-          <a className="btn" href="#/">
+          <a className="btn" href={`#/e/${eventId}`}>
             Voltar às músicas
           </a>
         </div>
@@ -180,6 +181,7 @@ export function Player({ songId, queueItemId = null }: Props) {
   if (phase === "results" && result) {
     return (
       <Results
+        eventId={eventId}
         song={song}
         result={result}
         difficulty={difficulty}
@@ -249,7 +251,11 @@ export function Player({ songId, queueItemId = null }: Props) {
 
             {song.instrumentalUrl && (
               <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={instrumental} onChange={(event) => setInstrumental(event.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={instrumental}
+                  onChange={(event) => setInstrumental(event.target.checked)}
+                />
                 Tocar sem a voz original (instrumental)
               </label>
             )}
@@ -262,7 +268,7 @@ export function Player({ songId, queueItemId = null }: Props) {
             )}
 
             <div className="flex gap-2">
-              <a className="btn" href={queueItemId ? "#/party" : "#/"}>
+              <a className="btn" href={`#/e/${eventId}/${queueItemId ? "party" : "songs"}`}>
                 Voltar
               </a>
               <button className="btn btn-primary flex-1 text-base" onClick={start} disabled={mic.status === "starting"}>

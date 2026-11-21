@@ -20,6 +20,7 @@ interface Chart {
 
 interface FinishRequest {
   id: string;
+  groupId: string;
   mediaFile: string;
   source: SongSource;
   title: string;
@@ -86,8 +87,9 @@ async function finishImport(request: FinishRequest, job: JobHandle): Promise<str
     melody = await extractMelody(vocals ?? media);
   }
 
-  saveSong({
+  await saveSong({
     id: request.id,
+    groupId: request.groupId,
     title: request.title,
     artist: request.artist,
     language,
@@ -128,6 +130,8 @@ function chartFromText(text: string, kind: "lrc" | "ultrastar"): Chart {
 }
 
 export interface CommonOptions {
+  /** Group whose library receives the song. */
+  groupId: string;
   title?: string;
   artist?: string;
   language?: string;
@@ -155,7 +159,8 @@ export async function importFromYoutube(options: YoutubeOptions, job: JobHandle)
 
   job.step("Lendo informações do vídeo");
   const info = await fetchInfo(options.url);
-  const id = `yt-${info.id.replace(/[^\w-]/g, "")}`;
+  // The same video can live in several groups' libraries, each with its own copy.
+  const id = `yt-${info.id.replace(/[^\w-]/g, "")}-${options.groupId.slice(0, 8)}`;
 
   return inFreshDir(id, async (dir) => {
     job.step("Baixando do YouTube", 0);
@@ -169,6 +174,7 @@ export async function importFromYoutube(options: YoutubeOptions, job: JobHandle)
     return finishImport(
       {
         id,
+        groupId: options.groupId,
         mediaFile,
         source: "youtube",
         title: options.title || header?.title || info.title,
@@ -201,6 +207,7 @@ export async function importFromFile(options: FileOptions, job: JobHandle): Prom
     return finishImport(
       {
         id,
+        groupId: options.groupId,
         mediaFile,
         source: header ? "ultrastar" : "local",
         title: options.title || header?.title || fallbackTitle,

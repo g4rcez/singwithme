@@ -1,19 +1,19 @@
 import QRCode from "qrcode";
 import { useEffect, useState, type FormEvent } from "react";
-import type { Invite, PartyState, SongSummary } from "../shared/types";
+import type { EventState, Invite, SongSummary } from "../shared/types";
 import { api } from "./api";
 
 /** The QR code on screen. It is replaced as soon as a phone registers with it. */
-function InviteCode() {
+function InviteCode({ eventId }: { eventId: string }) {
   const [invite, setInvite] = useState<Invite | null>(null);
   const [image, setImage] = useState<string | null>(null);
 
   useEffect(() => {
-    const load = () => api.invite().then(setInvite, () => undefined);
+    const load = () => api.invite(eventId).then(setInvite, () => undefined);
     void load();
     const timer = setInterval(load, 2000);
     return () => clearInterval(timer);
-  }, []);
+  }, [eventId]);
 
   useEffect(() => {
     if (!invite) return;
@@ -38,19 +38,18 @@ function InviteCode() {
       <p className="mt-3 text-xs break-all text-white/40" data-testid="invite-url">
         {invite?.url}
       </p>
-      <p className="mt-1 text-xs text-white/40">O celular precisa estar no mesmo Wi-Fi deste computador.</p>
     </section>
   );
 }
 
-function DuoForm({ onCreated }: { onCreated: () => void }) {
+function DuoForm({ eventId, onCreated }: { eventId: string; onCreated: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
     try {
-      await api.createDuo([String(data.get("first")), String(data.get("second"))]);
+      await api.createDuo(eventId, [String(data.get("first")), String(data.get("second"))]);
       form.reset();
       setError(null);
       onCreated();
@@ -70,13 +69,15 @@ function DuoForm({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-export function Party({ party, refresh }: { party: PartyState; refresh: () => Promise<void> }) {
+export function Party({ state: party, refresh }: { state: EventState; refresh: () => Promise<void> }) {
+  const eventId = party.event.id;
+  const open = party.event.status === "open";
   const [songs, setSongs] = useState<SongSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.songs().then(setSongs, () => undefined);
-  }, []);
+    api.songs(eventId).then(setSongs, () => undefined);
+  }, [eventId]);
 
   const act = async (action: Promise<unknown>) => {
     setError(null);
@@ -87,21 +88,30 @@ export function Party({ party, refresh }: { party: PartyState; refresh: () => Pr
   const addToQueue = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    void act(api.enqueue(String(data.get("song")), String(data.get("duo"))));
+    void act(api.enqueue(eventId, String(data.get("song")), String(data.get("duo"))));
   };
 
   const sing = async (itemId: string, songId: string) => {
     await act(api.startItem(itemId));
-    location.hash = `#/sing/${encodeURIComponent(songId)}?item=${itemId}`;
+    location.hash = `#/e/${eventId}/sing/${encodeURIComponent(songId)}?item=${itemId}`;
   };
+
+  if (!open) {
+    return (
+      <main className="card p-10 text-center text-white/60">
+        <p className="mb-1 text-lg font-semibold text-white">Evento encerrado</p>
+        <p>A fila foi fechada. O que foi cantado está na aba Histórico; reabra o evento para continuar.</p>
+      </main>
+    );
+  }
 
   return (
     <main className="grid gap-6 lg:grid-cols-[22rem_1fr]">
       <div className="space-y-6">
-        <InviteCode />
+        <InviteCode eventId={eventId} />
         <section className="card space-y-4 p-6">
           <h2 className="text-lg font-bold">Duplas ({party.duos.length})</h2>
-          <DuoForm onCreated={refresh} />
+          <DuoForm eventId={eventId} onCreated={refresh} />
           <ul className="divide-y divide-edge text-sm">
             {party.duos.map((duo) => (
               <li key={duo.id} className="flex items-center justify-between py-2">
@@ -117,9 +127,6 @@ export function Party({ party, refresh }: { party: PartyState; refresh: () => Pr
               </li>
             ))}
           </ul>
-          <p className="text-xs text-white/40">
-            As duplas e a fila ficam só na memória: somem quando o karaokê é fechado.
-          </p>
         </section>
       </div>
 

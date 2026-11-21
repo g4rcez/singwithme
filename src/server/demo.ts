@@ -2,12 +2,13 @@ import { demoChart, DEMO_SONGS } from "../shared/demo";
 import { getSong, saveSong } from "./db";
 
 /** Adds the bundled demo songs to the library (their audio ships in `public/media`). */
-export function seedDemoSongs(): void {
+export async function seedDemoSongs(): Promise<void> {
   for (const song of DEMO_SONGS) {
-    if (getSong(song.id)) continue;
+    if (await getSong(song.id)) continue;
     const chart = demoChart(song);
-    saveSong({
+    await saveSong({
       id: song.id,
+      groupId: null,
       title: song.title,
       artist: song.artist,
       language: song.language,

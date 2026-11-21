@@ -4,7 +4,14 @@ import { api } from "./api";
 
 type Tab = "youtube" | "file";
 
-export function ImportDialog({ onClose }: { onClose: () => void }) {
+interface Props {
+  eventId: string;
+  /** Group whose library receives the song. */
+  groupId: string;
+  onClose: () => void;
+}
+
+export function ImportDialog({ eventId, groupId, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("youtube");
   const [tools, setTools] = useState<ToolStatus[]>([]);
   const [job, setJob] = useState<Job | null>(null);
@@ -40,7 +47,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     }
     setSending(true);
     try {
-      setJob(await (tab === "youtube" ? api.importYoutube(form) : api.importFile(form)));
+      setJob(await (tab === "youtube" ? api.importYoutube(groupId, form) : api.importFile(groupId, form)));
     } catch (cause) {
       setError((cause as Error).message);
     } finally {
@@ -49,7 +56,11 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-20 grid place-items-center overflow-y-auto bg-black/70 p-4" role="dialog" aria-modal>
+    <div
+      className="fixed inset-0 z-20 grid place-items-center overflow-y-auto bg-black/70 p-4"
+      role="dialog"
+      aria-modal
+    >
       <div className="card w-full max-w-xl p-6">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-xl font-bold">Adicionar música</h2>
@@ -59,7 +70,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         {job ? (
-          <JobProgress job={job} onClose={onClose} onRetry={() => setJob(null)} />
+          <JobProgress job={job} eventId={eventId} onClose={onClose} onRetry={() => setJob(null)} />
         ) : (
           <form onSubmit={submit} className="space-y-4">
             <div className="flex gap-2">
@@ -78,7 +89,13 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
             {tab === "youtube" ? (
               <label className="block text-sm">
                 Link do vídeo
-                <input className="field mt-1" name="url" type="url" required placeholder="https://www.youtube.com/watch?v=..." />
+                <input
+                  className="field mt-1"
+                  name="url"
+                  type="url"
+                  required
+                  placeholder="https://www.youtube.com/watch?v=..."
+                />
               </label>
             ) : (
               <label className="block text-sm">
@@ -151,7 +168,17 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-function JobProgress({ job, onClose, onRetry }: { job: Job; onClose: () => void; onRetry: () => void }) {
+function JobProgress({
+  job,
+  eventId,
+  onClose,
+  onRetry,
+}: {
+  job: Job;
+  eventId: string;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
   return (
     <div className="space-y-4">
       <p className="font-semibold">{job.status === "error" ? "A importação falhou" : job.step}</p>
@@ -174,7 +201,7 @@ function JobProgress({ job, onClose, onRetry }: { job: Job; onClose: () => void;
           </button>
         )}
         {job.status === "done" && job.songId && (
-          <a className="btn btn-primary" href={`#/sing/${encodeURIComponent(job.songId)}`}>
+          <a className="btn btn-primary" href={`#/e/${eventId}/sing/${encodeURIComponent(job.songId)}`}>
             Cantar agora
           </a>
         )}

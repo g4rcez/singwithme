@@ -1,78 +1,154 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { Me, Performance } from "../shared/types";
+import { api } from "./api";
 import { Guest } from "./Guest";
+import { Home } from "./Home";
 import { Library } from "./Library";
+import { Login } from "./Login";
 import { Party } from "./Party";
 import { Player } from "./Player";
-import { Ranking } from "./Ranking";
-import { useParty } from "./useParty";
+import { PerformanceTable } from "./Ranking";
+import { useEvent } from "./useEvent";
+
+type EventTab = "songs" | "party" | "history";
 
 type Route =
-  | { page: "library" | "ranking" | "party" | "me" }
-  | { page: "join"; token: string }
-  | { page: "sing"; id: string; item: string | null };
+  | { page: "home" }
+  | { page: "guest"; token: string | null }
+  | { page: "event"; eventId: string; tab: EventTab }
+  | { page: "sing"; eventId: string; songId: string; item: string | null };
 
 function parseRoute(hash: string): Route {
   const [path = "", query = ""] = hash.split("?");
-  const [, page, id] = path.split("/");
-  if (page === "sing" && id) {
-    return { page: "sing", id: decodeURIComponent(id), item: new URLSearchParams(query).get("item") };
+  const [, first, second, third, fourth] = path.split("/").map(decodeURIComponent);
+  if (first === "join" && second) return { page: "guest", token: second };
+  if (first === "me") return { page: "guest", token: null };
+  if (first === "e" && second) {
+    if (third === "sing" && fourth) {
+      return { page: "sing", eventId: second, songId: fourth, item: new URLSearchParams(query).get("item") };
+    }
+    return { page: "event", eventId: second, tab: third === "party" || third === "history" ? third : "songs" };
   }
-  if (page === "join" && id) return { page: "join", token: id };
-  if (page === "ranking" || page === "party" || page === "me") return { page };
-  return { page: "library" };
+  return { page: "home" };
 }
 
-const TABS = [
-  { page: "library", href: "#/", label: "Músicas" },
-  { page: "party", href: "#/party", label: "Fila e duplas" },
-  { page: "ranking", href: "#/ranking", label: "Ranking" },
-] as const;
+const TABS: { tab: EventTab; label: string }[] = [
+  { tab: "songs", label: "Músicas" },
+  { tab: "party", label: "Fila e duplas" },
+  { tab: "history", label: "Histórico" },
+];
+
+function History({ eventId }: { eventId: string }) {
+  const [entries, setEntries] = useState<Performance[] | null>(null);
+  useEffect(() => {
+    api.eventHistory(eventId).then(setEntries, () => setEntries([]));
+  }, [eventId]);
+  return (
+    <main className="card p-6">
+      <h1 className="mb-1 text-xl font-bold">Histórico do evento</h1>
+      <p className="mb-4 text-sm text-white/50">Tudo o que foi cantado, na ordem em que aconteceu.</p>
+      {entries && <PerformanceTable entries={entries} ranked={false} showSong />}
+    </main>
+  );
+}
+
+/** The host's view of one event: its songs, its queue and what has been sung. */
+function EventPages({ eventId, tab, me }: { eventId: string; tab: EventTab; me: Me }) {
+  const { state, error, refresh } = useEvent(eventId);
+  const [busy, setBusy] = useState(false);
+
+  if (error && !state) {
+    return (
+      <div className="grid h-screen place-items-center text-center">
+        <div>
+          <p className="mb-4">{error}</p>
+          <a className="btn" href="#/">
+            Voltar aos eventos
+          </a>
+        </div>
+      </div>
+    );
+  }
+  if (!state) return <p className="p-10 text-white/50">Carregando...</p>;
+
+  const { event } = state;
+  const open = event.status === "open";
+  const setStatus = async (status: "open" | "closed") => {
+    if (status === "closed" && !confirm("Encerrar o evento? A fila é esvaziada e o histórico fica guardado.")) return;
+    setBusy(true);
+    await api.setEventStatus(eventId, status).catch(() => undefined);
+    await refresh();
+    setBusy(false);
+  };
+
+  return (
+    <div className="mx-auto max-w-6xl px-5 pb-16">
+      <header className="flex flex-wrap items-center justify-between gap-3 py-6">
+        <div className="min-w-0">
+          <a href="#/" className="text-xs text-white/50 hover:text-white">
+            ← {event.groupName}
+          </a>
+          <h1 className="truncate text-2xl font-black tracking-tight">
+            {event.name} {!open && <span className="chip align-middle">Encerrado</span>}
+          </h1>
+        </div>
+        <nav className="flex flex-wrap gap-2 text-sm">
+          {TABS.map((item) => (
+            <a
+              key={item.tab}
+              href={`#/e/${eventId}/${item.tab}`}
+              className={`btn ${tab === item.tab ? "border-glow" : ""}`}
+            >
+              {item.label}
+              {item.tab === "party" && state.queue.length > 0 && (
+                <span className="rounded-full bg-accent px-1.5 text-xs">{state.queue.length}</span>
+              )}
+            </a>
+          ))}
+          <button className="btn" disabled={busy} onClick={() => setStatus(open ? "closed" : "open")}>
+            {open ? "Encerrar evento" : "Reabrir evento"}
+          </button>
+        </nav>
+      </header>
+      {tab === "history" ? (
+        <History eventId={eventId} />
+      ) : tab === "party" ? (
+        <Party state={state} refresh={refresh} />
+      ) : (
+        <Library eventId={eventId} groupId={event.groupId} demo={me.demo} open={open} />
+      )}
+    </div>
+  );
+}
 
 export function App() {
   const [route, setRoute] = useState(() => parseRoute(location.hash));
-  const { party, refresh } = useParty();
+  const [me, setMe] = useState<Me | null>(null);
 
+  const loadMe = useCallback(() => api.me().then(setMe, () => undefined), []);
+  useEffect(() => void loadMe(), [loadMe]);
   useEffect(() => {
     const onChange = () => setRoute(parseRoute(location.hash));
     addEventListener("hashchange", onChange);
     return () => removeEventListener("hashchange", onChange);
   }, []);
 
-  if (!party) return <p className="p-10 text-white/50">Carregando...</p>;
+  if (!me) return <p className="p-10 text-white/50">Carregando...</p>;
 
-  // Phones only ever see the registration and queue screens.
-  if (!party.isHost) {
-    return <Guest party={party} refresh={refresh} token={route.page === "join" ? route.token : null} />;
-  }
+  // Phones that scanned a QR code never need an account.
+  if (route.page === "guest") return <Guest token={route.token} />;
+  if (!me.user) return <Login me={me} onSignedIn={loadMe} />;
 
   if (route.page === "sing") {
-    return <Player key={`${route.id}:${route.item}`} songId={route.id} queueItemId={route.item} />;
+    return (
+      <Player
+        key={`${route.songId}:${route.item}`}
+        eventId={route.eventId}
+        songId={route.songId}
+        queueItemId={route.item}
+      />
+    );
   }
-
-  return (
-    <div className="mx-auto max-w-6xl px-5 pb-16">
-      <header className="flex flex-wrap items-center justify-between gap-3 py-6">
-        <a href="#/" className="text-2xl font-black tracking-tight">
-          Sing<span className="text-accent">With</span>Me
-        </a>
-        <nav className="flex gap-2 text-sm">
-          {TABS.map((tab) => (
-            <a key={tab.page} href={tab.href} className={`btn ${route.page === tab.page ? "border-glow" : ""}`}>
-              {tab.label}
-              {tab.page === "party" && party.queue.length > 0 && (
-                <span className="rounded-full bg-accent px-1.5 text-xs">{party.queue.length}</span>
-              )}
-            </a>
-          ))}
-        </nav>
-      </header>
-      {route.page === "ranking" ? (
-        <Ranking />
-      ) : route.page === "party" ? (
-        <Party party={party} refresh={refresh} />
-      ) : (
-        <Library demo={party.demo} />
-      )}
-    </div>
-  );
+  if (route.page === "event") return <EventPages eventId={route.eventId} tab={route.tab} me={me} />;
+  return <Home me={me} onSignedOut={loadMe} />;
 }

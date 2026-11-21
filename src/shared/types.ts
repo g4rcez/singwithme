@@ -33,6 +33,8 @@ export type LyricsSource = "demo" | "ultrastar" | "lrc" | "lrclib" | "lrclib-loo
 
 export interface SongSummary {
   id: string;
+  /** Owning group; null for songs shared by every group. */
+  groupId: string | null;
   title: string;
   artist: string;
   language: string | null;
@@ -60,21 +62,6 @@ export interface Song extends SongSummary {
 export type ScoringMode = "notes" | "melody" | "rhythm";
 export type Difficulty = "easy" | "normal" | "hard";
 
-export interface ScoreEntry {
-  id: number;
-  songId: string;
-  player: string;
-  score: number;
-  accuracy: number;
-  difficulty: Difficulty;
-  createdAt: number;
-}
-
-export interface RankedScore extends ScoreEntry {
-  songTitle: string;
-  songArtist: string;
-}
-
 export type JobStatus = "running" | "done" | "error";
 
 export interface Job {
@@ -97,7 +84,26 @@ export interface ToolStatus {
   install: string;
 }
 
-/** Two people who sing together. Lives only in server memory: a party ends when the server stops. */
+/** A SaaS tenant: a bar, a family, a company. Owns songs, events and their history. */
+export interface Group {
+  id: string;
+  name: string;
+  events: EventSummary[];
+}
+
+export type EventStatus = "open" | "closed";
+
+/** One karaoke night. Duos, the queue and the performances all belong to an event. */
+export interface EventSummary {
+  id: string;
+  groupId: string;
+  name: string;
+  status: EventStatus;
+  createdAt: number;
+  performances: number;
+}
+
+/** Two people who sing together during one event. */
 export interface Duo {
   id: string;
   name: string;
@@ -114,13 +120,10 @@ export interface QueueItem {
   singing: boolean;
 }
 
-export interface PartyState {
-  /** True for the machine running the karaoke (it controls the queue and shows the QR codes). */
+export interface EventState {
+  event: EventSummary & { groupName: string };
+  /** True for a signed-in member of the event's group: they run the queue and show the QR codes. */
   isHost: boolean;
-  /** Fixed library: importing and deleting songs is disabled. */
-  demo: boolean;
-  /** The host proves itself with a PIN instead of by sitting at the server machine. */
-  pinRequired: boolean;
   duos: Duo[];
   queue: QueueItem[];
 }
@@ -130,8 +133,34 @@ export interface Invite {
   url: string;
 }
 
-/** What a phone keeps after registering: the duo plus the secret that proves it owns it. */
+/** What a phone keeps after registering: the event, the duo and the secret that proves it owns it. */
 export interface DuoSession {
+  eventId: string;
   duo: Duo;
   secret: string;
+}
+
+/** One song sung at an event: the history and the rankings are built from these. */
+export interface Performance {
+  id: string;
+  eventId: string;
+  eventName: string;
+  songId: string;
+  songTitle: string;
+  songArtist: string;
+  singer: string;
+  score: number;
+  accuracy: number;
+  difficulty: Difficulty;
+  createdAt: number;
+}
+
+export interface Me {
+  /** Null when nobody is signed in. */
+  user: { email: string } | null;
+  /** email: sign in with a code sent by e-mail. local: whoever sits at the karaoke machine (or knows the PIN). */
+  auth: "email" | "local";
+  pinRequired: boolean;
+  /** Fixed library: importing and deleting songs is disabled. */
+  demo: boolean;
 }

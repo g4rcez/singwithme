@@ -1,13 +1,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { ScoreResult } from "../shared/scoring";
-import type { Difficulty, QueueItem, ScoreEntry, Song } from "../shared/types";
+import type { Difficulty, Performance, QueueItem, Song } from "../shared/types";
 import { api } from "./api";
 import { DIFFICULTY_LABEL, MODE_HELP, points } from "./format";
-import { ScoreTable } from "./Ranking";
+import { PerformanceTable } from "./Ranking";
 
 const NAME_KEY = "singwithme.player";
 
 interface Props {
+  eventId: string;
   song: Song;
   result: ScoreResult;
   difficulty: Difficulty;
@@ -16,38 +17,42 @@ interface Props {
   onAgain: () => void;
 }
 
-export function Results({ song, result, difficulty, singer, onAgain }: Props) {
-  const [ranking, setRanking] = useState<ScoreEntry[]>([]);
-  const [saved, setSaved] = useState<ScoreEntry | null>(null);
+export function Results({ eventId, song, result, difficulty, singer, onAgain }: Props) {
+  const [ranking, setRanking] = useState<Performance[]>([]);
+  const [saved, setSaved] = useState<{ id: string; singer: string } | null>(null);
   const [player, setPlayer] = useState(() => singer ?? localStorage.getItem(NAME_KEY) ?? "");
   const [upNext, setUpNext] = useState<QueueItem | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.scores(song.id).then(setRanking, () => undefined);
-  }, [song.id]);
+    api.songRanking(eventId, song.id).then(setRanking, () => undefined);
+  }, [eventId, song.id]);
 
   useEffect(() => {
     // Whoever just sang may still be listed for a moment, so skip the item marked as on stage.
-    api.party().then((party) => setUpNext(party.queue.find((item) => !item.singing) ?? null), () => undefined);
-  }, []);
+    api.event(eventId).then(
+      (state) => setUpNext(state.queue.find((item) => !item.singing) ?? null),
+      () => undefined,
+    );
+  }, [eventId]);
 
   const singNext = async (item: QueueItem) => {
     await api.startItem(item.id).catch(() => undefined);
-    location.hash = `#/sing/${encodeURIComponent(item.songId)}?item=${item.id}`;
+    location.hash = `#/e/${eventId}/sing/${encodeURIComponent(item.songId)}?item=${item.id}`;
   };
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
     try {
-      const response = await api.saveScore(song.id, {
-        player,
+      const response = await api.savePerformance(eventId, {
+        songId: song.id,
+        singer: player,
         score: result.score,
         accuracy: result.accuracy,
         difficulty,
       });
       if (!singer) localStorage.setItem(NAME_KEY, player.trim());
-      setSaved(response.entry);
+      setSaved({ id: response.id, singer: player.trim() });
       setRanking(response.ranking);
     } catch (cause) {
       setError((cause as Error).message);
@@ -73,7 +78,7 @@ export function Results({ song, result, difficulty, singer, onAgain }: Props) {
 
         {saved ? (
           <p className="mt-6 font-semibold text-hit">
-            Salvo! {saved.player} está em {position}º lugar nesta música.
+            Salvo! {saved.singer} está em {position}º lugar nesta música.
           </p>
         ) : (
           <form onSubmit={save} className="mt-6 flex gap-2">
@@ -103,18 +108,18 @@ export function Results({ song, result, difficulty, singer, onAgain }: Props) {
               Cantar de novo
             </button>
           )}
-          <a className="btn" href="#/party">
+          <a className="btn" href={`#/e/${eventId}/party`}>
             Ver a fila
           </a>
-          <a className="btn" href="#/">
+          <a className="btn" href={`#/e/${eventId}`}>
             Voltar às músicas
           </a>
         </div>
       </section>
 
       <section className="card p-6">
-        <h2 className="mb-2 font-bold">Ranking de “{song.title}”</h2>
-        <ScoreTable entries={ranking} highlight={saved?.id} />
+        <h2 className="mb-2 font-bold">Ranking do grupo em “{song.title}”</h2>
+        <PerformanceTable entries={ranking} ranked showEvent highlight={saved?.id} />
       </section>
     </div>
   );

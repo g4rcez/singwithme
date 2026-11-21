@@ -57,4 +57,3 @@ export function startJob(label: string, work: (handle: JobHandle) => Promise<str
 }
 
 export const getJob = (id: string) => jobs.get(id) ?? null;
-export const listJobs = () => [...jobs.values()].reverse();

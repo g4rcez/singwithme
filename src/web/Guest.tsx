@@ -1,70 +1,52 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type { DuoSession, PartyState, SongSummary } from "../shared/types";
-import { api, hostPin } from "./api";
+import type { DuoSession, SongSummary } from "../shared/types";
+import { api } from "./api";
+import { useEvent, type LiveEvent } from "./useEvent";
 
 const SESSION_KEY = "singwithme.duo";
 
 function loadSession(): DuoSession | null {
   try {
-    return JSON.parse(localStorage.getItem(SESSION_KEY) ?? "null") as DuoSession | null;
+    const session = JSON.parse(localStorage.getItem(SESSION_KEY) ?? "null") as DuoSession | null;
+    return session?.eventId && session.duo && session.secret ? session : null;
   } catch {
     return null;
   }
 }
 
-/** Lets the person running the karaoke identify themselves on instances protected by a PIN. */
-function HostLogin({ refresh }: { refresh: () => Promise<void> }) {
-  const [error, setError] = useState(false);
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    hostPin.set(String(new FormData(event.currentTarget).get("pin")));
-    const party = await api.party().catch(() => null);
-    if (party?.isHost) return refresh();
-    hostPin.clear();
-    setError(true);
-  };
-  return (
-    <details className="mt-8 text-sm text-white/50">
-      <summary className="cursor-pointer">Sou o anfitrião</summary>
-      <form onSubmit={submit} className="mt-3 flex gap-2">
-        <input
-          className="field"
-          name="pin"
-          type="password"
-          placeholder="PIN do anfitrião"
-          aria-label="PIN do anfitrião"
-          required
-        />
-        <button className="btn shrink-0">Entrar</button>
-      </form>
-      {error && <p className="mt-2 text-red-300">PIN incorreto.</p>}
-    </details>
-  );
-}
-
-function Shell({ children, footer }: { children: React.ReactNode; footer?: React.ReactNode }) {
+function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto max-w-md px-5 pb-16">
       <p className="py-6 text-2xl font-black tracking-tight">
         Sing<span className="text-accent">With</span>Me
       </p>
       {children}
-      {footer}
     </div>
   );
 }
 
-/** Registration form a phone sees after scanning a QR code. */
-function Join({ token, onJoined }: { token: string; onJoined: (session: DuoSession) => void }) {
-  const [valid, setValid] = useState<boolean | null>(null);
-  const [error, setError] = useState<string | null>(null);
+function Notice({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="card p-6">
+      <h1 className="mb-2 text-xl font-bold">{title}</h1>
+      <p className="text-sm text-white/60">{children}</p>
+    </div>
+  );
+}
 
-  useEffect(() => {
-    api.inviteValid(token).then(
-      (response) => setValid(response.valid),
-      () => setValid(false),
-    );
-  }, [token]);
+type InviteInfo = { valid: boolean; eventName: string | null };
+
+/** Registration form a phone sees after scanning a QR code that is still valid. */
+function Join({
+  token,
+  eventName,
+  onJoined,
+}: {
+  token: string;
+  eventName: string | null;
+  onJoined: (session: DuoSession) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -76,20 +58,10 @@ function Join({ token, onJoined }: { token: string; onJoined: (session: DuoSessi
     }
   };
 
-  if (valid === null) return <p className="text-white/50">Conferindo o código...</p>;
-  if (!valid) {
-    return (
-      <div className="card p-6">
-        <h1 className="mb-2 text-xl font-bold">Este QR code já foi usado</h1>
-        <p className="text-sm text-white/60">
-          Cada código cadastra uma dupla só. Escaneie o novo código que está na tela do karaokê.
-        </p>
-      </div>
-    );
-  }
   return (
     <form onSubmit={submit} className="card space-y-4 p-6">
       <div>
+        <p className="text-xs text-accent uppercase">{eventName}</p>
         <h1 className="text-xl font-bold">Cadastre sua dupla</h1>
         <p className="text-sm text-white/60">Quem vai cantar junto?</p>
       </div>
@@ -117,29 +89,29 @@ function Join({ token, onJoined }: { token: string; onJoined: (session: DuoSessi
 }
 
 /** A registered duo's phone: pick songs and follow the queue. */
-function Lobby({ session, party, refresh }: { session: DuoSession; party: PartyState; refresh: () => Promise<void> }) {
+function Lobby({ session, live }: { session: DuoSession; live: LiveEvent }) {
   const [songs, setSongs] = useState<SongSummary[]>([]);
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const state = live.state!;
 
   useEffect(() => {
-    const timer = setTimeout(() => api.songs(search).then(setSongs, () => undefined), 150);
+    const timer = setTimeout(() => api.songs(session.eventId, search).then(setSongs, () => undefined), 150);
     return () => clearTimeout(timer);
-  }, [search]);
+  }, [session.eventId, search]);
 
   const act = async (action: Promise<unknown>) => {
     setError(null);
     await action.catch((cause: Error) => setError(cause.message));
-    await refresh();
+    await live.refresh();
   };
 
-  const mine = party.queue.filter((item) => item.duoId === session.duo.id);
-  const queued = new Set(mine.map((item) => item.songId));
+  const queued = new Set(state.queue.filter((item) => item.duoId === session.duo.id).map((item) => item.songId));
 
   return (
     <div className="space-y-5">
       <div className="card p-5">
-        <p className="text-xs text-white/50">Sua dupla</p>
+        <p className="text-xs text-white/50">{state.event.name} · sua dupla</p>
         <h1 className="text-2xl font-black">{session.duo.name}</h1>
       </div>
 
@@ -147,9 +119,9 @@ function Lobby({ session, party, refresh }: { session: DuoSession; party: PartyS
 
       <section className="card p-5">
         <h2 className="mb-2 font-bold">Fila</h2>
-        {party.queue.length === 0 && <p className="text-sm text-white/50">Ninguém na fila. Escolha uma música!</p>}
+        {state.queue.length === 0 && <p className="text-sm text-white/50">Ninguém na fila. Escolha uma música!</p>}
         <ol className="space-y-2 text-sm">
-          {party.queue.map((item, index) => {
+          {state.queue.map((item, index) => {
             const own = item.duoId === session.duo.id;
             return (
               <li
@@ -192,7 +164,7 @@ function Lobby({ session, party, refresh }: { session: DuoSession; party: PartyS
               <button
                 className="btn btn-primary shrink-0 text-xs"
                 disabled={queued.has(song.id)}
-                onClick={() => act(api.enqueue(song.id, session.duo.id, session.secret))}
+                onClick={() => act(api.enqueue(session.eventId, song.id, session.duo.id, session.secret))}
               >
                 {queued.has(song.id) ? "Na fila" : "Entrar na fila"}
               </button>
@@ -205,39 +177,50 @@ function Lobby({ session, party, refresh }: { session: DuoSession; party: PartyS
   );
 }
 
-interface Props {
-  party: PartyState;
-  refresh: () => Promise<void>;
-  /** Present when the phone arrived from a QR code. */
-  token: string | null;
-}
-
-export function Guest({ party, refresh, token }: Props) {
+/** Everything a phone sees. `token` is present when it arrived from a QR code. */
+export function Guest({ token }: { token: string | null }) {
   const [session, setSession] = useState(loadSession);
+  const live = useEvent(session?.eventId ?? null);
+  const [invite, setInvite] = useState<InviteInfo | null>(null);
 
-  // The party lives in the server's memory: after a restart the saved duo no longer exists.
-  const active = session && party.duos.some((duo) => duo.id === session.duo.id) ? session : null;
+  useEffect(() => {
+    setInvite(null);
+    if (token) api.inviteInfo(token).then(setInvite, () => setInvite({ valid: false, eventName: null }));
+  }, [token]);
 
   const joined = (created: DuoSession) => {
     localStorage.setItem(SESSION_KEY, JSON.stringify(created));
     setSession(created);
     location.hash = "#/me";
-    void refresh();
   };
 
+  // A session only counts while its event is open and still lists the duo.
+  const loading =
+    (session !== null && live.state === null && live.error === null) || (token !== null && invite === null);
+  const active =
+    session && live.state?.event.status === "open" && live.state.duos.some((duo) => duo.id === session.duo.id);
+
   return (
-    <Shell footer={party.pinRequired && !active ? <HostLogin refresh={refresh} /> : null}>
-      {active ? (
-        <Lobby session={active} party={party} refresh={refresh} />
+    <Shell>
+      {loading ? (
+        <p className="text-white/50">Carregando...</p>
+      ) : token && invite?.valid ? (
+        // A fresh code always registers a new duo, even on a phone that sang at another event.
+        <Join token={token} eventName={invite.eventName} onJoined={joined} />
+      ) : active ? (
+        <Lobby session={session} live={live} />
       ) : token ? (
-        <Join token={token} onJoined={joined} />
+        <Notice title="Este QR code já foi usado">
+          Cada código cadastra uma dupla só. Escaneie o novo código que está na tela do karaokê.
+        </Notice>
+      ) : session && live.state?.event.status === "closed" ? (
+        <Notice title="O evento terminou">
+          Obrigado por cantar! Para o próximo, escaneie o QR code do novo evento.
+        </Notice>
       ) : (
-        <div className="card p-6">
-          <h1 className="mb-2 text-xl font-bold">Escaneie o QR code</h1>
-          <p className="text-sm text-white/60">
-            Para cadastrar sua dupla e escolher músicas, aponte a câmera para o código na tela do karaokê.
-          </p>
-        </div>
+        <Notice title="Escaneie o QR code">
+          Para cadastrar sua dupla e escolher músicas, aponte a câmera para o código na tela do karaokê.
+        </Notice>
       )}
     </Shell>
   );

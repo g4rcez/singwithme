@@ -1,6 +1,7 @@
 # SingWithMe
 
-Karaokê offline com pontuação por afinação e ranking por música. Roda na sua máquina: as músicas, as letras e
+Karaokê com pontuação por afinação, fila de duplas e histórico por evento. Roda na sua máquina (offline) ou
+hospedado. No modo local as músicas, as letras e
 os placares ficam em `./data` e nada do microfone sai do navegador. A internet só é usada na hora de importar
 uma música (YouTube e busca de letra).
 
