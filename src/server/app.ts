@@ -9,7 +9,7 @@ import { seedDemoSongs } from "./demo";
 import { HttpError } from "./errors";
 import { importFromFile, importFromYoutube, type CommonOptions } from "./importer/pipeline";
 import { getJob, startJob } from "./jobs";
-import { CLOUD, DEMO, HOST_PIN, PUBLIC_MEDIA_DIR, songDir } from "./paths";
+import { CLOUD, DEMO, HOST_PIN, PUBLIC_DIR, PUBLIC_MEDIA_DIR, songDir } from "./paths";
 import {
   addPerformance,
   createDuo,
@@ -152,6 +152,17 @@ async function serveMedia(request: Request, id: string, name: string): Promise<R
       "Content-Length": String(end - start + 1),
     },
   });
+}
+
+/** Serves the prebuilt interface from disk, for deployments where nothing else serves static files. */
+async function serveStatic(request: Request): Promise<Response> {
+  const { pathname } = new URL(request.url);
+  if (request.method !== "GET" || pathname.includes("..")) return fail("Não encontrado", 404);
+  const file = Bun.file(join(PUBLIC_DIR, pathname === "/" ? "index.html" : pathname));
+  if (!(await file.exists())) return fail("Não encontrado", 404);
+  // Asset names carry a content hash, so they can be cached forever; the page itself must stay fresh.
+  const cache = pathname.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache";
+  return new Response(file, { headers: { "Cache-Control": cache } });
 }
 
 const text = (form: FormData, key: string) => {
@@ -417,7 +428,7 @@ export function startServer(pages: Record<string, HTMLBundle> = {}) {
 
       "/media/:id/:file": (request) => serveMedia(request, request.params.id, request.params.file),
     },
-    fetch: () => fail("Não encontrado", 404),
+    fetch: (request) => (CLOUD ? serveStatic(request) : fail("Não encontrado", 404)),
   });
 
   network.addressOf = (request) => server.requestIP(request)?.address ?? "";

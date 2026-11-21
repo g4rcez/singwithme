@@ -1,4 +1,2 @@
-import { startServer } from "./src/server/app";
-
-// Vercel entry point (Bun runtime). The interface is prebuilt into `public/` by `bun run build`.
-startServer();
+// Vercel entry point (Bun runtime). The real server is the bundle produced by `bun run build`.
+import "./build/server.js";
