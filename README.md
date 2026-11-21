@@ -72,6 +72,10 @@ sem senha: contas, códigos, sessões e cookies são do [Better Auth](https://be
 
 Rodando localmente com banco e sem `RESEND_API_KEY`, o código aparece no terminal do servidor.
 
+Na instância hospedada, os e-mails saem de `login@singwithme.zettabot.app`, um subdomínio verificado no Resend
+cujos registros (DKIM, SPF e MX de retorno, todos sob `singwithme.`) ficam no DNS da Vercel. Para usar outro
+domínio, verifique-o no Resend e troque `SINGWITHME_EMAIL_FROM`.
+
 **Segredos nunca entram no repositório.** Cadastre-os nas variáveis de ambiente da Vercel (Project Settings →
 Environment Variables) ou nos secrets do GitHub; `.env` e `.env.*` estão no `.gitignore`.
 
